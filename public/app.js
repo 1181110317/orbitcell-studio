@@ -8456,6 +8456,7 @@ function closeDlg() {
     window.AgentHubUI?.icons($('#dlgTitle'));
     body.className = previous.bodyClass || 'dlg-body';
     body.replaceChildren(previous.content);
+    window.OrbitCellLayout?.refresh();
     body.scrollTop = previous.top;
     body.scrollLeft = previous.left;
     requestAnimationFrame(() => {
@@ -14742,7 +14743,7 @@ function openNewTaskAgentChooser(context) {
       <label class="new-task-search">${window.AgentHubUI.icon('search')}<input type="search" data-task-agent-search placeholder="搜索 Agent…" aria-label="搜索 Agent"></label>
       <div class="new-task-agents" role="group" aria-label="可用 Agent"></div>
       <div class="new-task-footer">
-        <small>发送消息后开始任务</small><span class="layout-order-hint">拖动右侧把手排序</span>
+        <small>发送消息后开始任务</small><button type="button" class="btn-mini" data-task-order>调整顺序</button>
         <button type="button" class="btn-mini" data-task-manage>${window.AgentHubUI.icon('gear')}管理 Agent</button>
       </div>
     </div>`);
@@ -14767,6 +14768,7 @@ function openNewTaskAgentChooser(context) {
     directories.set(context.hostId,context.cwd);context.hostId=event.target.value;context.cwd=directories.get(context.hostId)||'';
     const directory=root.querySelector('[data-task-directory]');directory.textContent=context.cwd?baseName(context.cwd):'默认工作区';directory.title=context.cwd;draw();
   };
+  root.querySelector('[data-task-order]').onclick=window.OrbitCellLayout.openAgents;
   root.querySelector('[data-task-manage]').onclick=()=>{closeDlg();window.AgentHubAgentCenter.open();};
   draw();root.querySelector('[data-task-agent-search]').focus();
 }

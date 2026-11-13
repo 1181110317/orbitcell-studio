@@ -185,15 +185,13 @@ Session statistics use four compact primary cards, inline cache/cost details and
 For multi-operation file history, default to the operation sequence with concise write headers and actual edit fragments. Keep a separate Net changes option. The file card and diff header share the final net counts; operation totals are labelled separately and never substituted for net changes. Missing baselines stay unknown.
 ## Card order
 
-Agent choices, Agent overview cards, environment lists, provider cards, model
-rows, project cards and toolbox cards expose a subtle drag handle that becomes
-clearer on hover or keyboard focus. Touch devices keep the handle visible. Focus the handle and use
-**Alt + arrow keys** to reorder without dragging; **Escape** cancels an active
-drag.
+Use the separate **Adjust order** dialog to move entries up/down, enter a
+position, or restore the default. Edits remain a draft until Save; Cancel keeps
+the previous order. Tool and project categories stay grouped. The original card
+DOM is retained without wrappers, handles or pointer-based sorting.
 
 Agent order is saved through the Agent preferences API and reused by the new
 task chooser, Agent management, environment views and sidebar. Other card order
-is a browser preference. Filtering preserves the positions of hidden entries.
-Reordering never enables an unavailable Agent, selects a model, sends a message,
-changes a permission or starts a task. A failed save restores the displayed
-order.
+is a browser preference. Reordering does not change an Agent's enabled state,
+selection, model, permission or running task. A failed save preserves the draft
+for retry and leaves the existing view unchanged.

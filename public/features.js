@@ -21,13 +21,14 @@
   }
   function show() {
     const groups = [...new Set([...actions.values()].map(a => a.group))];
-    openDlg('工具箱', `<div class="feature-intro"><b>选择一项工具</b><p>在当前项目和运行环境中继续工作。</p></div><input class="feature-search" id="featureSearch" type="search" placeholder="搜索工具，例如终端、浏览器、模型…" aria-label="搜索工具">` + groups.map(g => `<section class="feature-section"><h3>${esc(g)}</h3><div class="feature-grid">${[...actions.values()].filter(a => a.group === g).map(a => `<button type="button" class="feature-card" data-feature="${esc(a.id)}"><span class="feature-icon" aria-hidden="true">${window.AgentHubUI.icon(featureIcon(a.id))}</span><strong>${esc(a.name)}</strong><span>${esc(a.description)}</span><i aria-hidden="true">↗</i></button>`).join('')}</div></section>`).join(''));
+    openDlg('工具箱', `<div class="feature-intro"><b>选择一项工具</b><p>在当前项目和运行环境中继续工作。</p><button type="button" class="btn-mini" id="featureOrder">调整顺序</button></div><input class="feature-search" id="featureSearch" type="search" placeholder="搜索工具，例如终端、浏览器、模型…" aria-label="搜索工具">` + groups.map(g => `<section class="feature-section"><h3>${esc(g)}</h3><div class="feature-grid">${[...actions.values()].filter(a => a.group === g).map(a => `<button type="button" class="feature-card" data-feature="${esc(a.id)}"><span class="feature-icon" aria-hidden="true">${window.AgentHubUI.icon(featureIcon(a.id))}</span><strong>${esc(a.name)}</strong><span>${esc(a.description)}</span><i aria-hidden="true">↗</i></button>`).join('')}</div></section>`).join(''));
+    $('#featureOrder').onclick=()=>window.OrbitCellLayout.open({key:'tools',title:'调整工具顺序',items:[...actions.values()].map(a=>({id:a.id,name:a.name,detail:a.description,group:a.group,icon:window.AgentHubUI.icon(featureIcon(a.id))}))});
     $$('#dlgBody [data-feature]').forEach(b => b.onclick = () => actions.get(b.dataset.feature)?.fn());
     const orderTools=()=>document.querySelectorAll('#dlgBody .feature-grid').forEach(root=>window.OrbitCellLayout.bind(root,{key:'tools',selector:'[data-feature]',id:el=>el.dataset.feature,allIds:()=>[...actions.keys()]}));orderTools();
     $('#featureSearch').oninput = e => {
       const q = e.target.value.trim().toLowerCase();
-      $$('#dlgBody [data-feature]').forEach(b => { b.hidden = !b.textContent.toLowerCase().includes(q); if(b.parentElement.classList.contains('layout-sort-wrap'))b.parentElement.hidden=b.hidden; });
-      $('#dlgBody .feature-section').forEach(section => { section.hidden = !section.querySelector('[data-feature]:not([hidden])'); });
+      $$('#dlgBody [data-feature]').forEach(b => { b.hidden = !b.textContent.toLowerCase().includes(q); });
+      $$('#dlgBody .feature-section').forEach(section => { section.hidden = !section.querySelector('[data-feature]:not([hidden])'); });
       orderTools();
     };
   }
