@@ -14,35 +14,38 @@ body {
 button.ui-icon-only { display: inline-flex; align-items: center; justify-content: center; gap: 0; min-width: 28px; min-height: 28px; padding: 5px; border-radius: 7px; }
 
 /* Header: useful actions in a quiet tool group, matching usage chips. */
-#mainHeader { display: flex; align-items: center; flex-wrap: nowrap; min-height: 80px; height: auto; padding: 14px 24px; gap: 20px; }
+#mainHeader { --control-height:32px; --control-icon-size:16px; display:flex; align-items:center; flex-wrap:nowrap; min-height:72px; height:auto; padding:12px 20px; gap:16px; }
 #mainHeader .hdr-left { display: flex; flex: 1 1 240px; min-width: 0; gap: 12px; }
 #mainHeader .hdr-heading { min-width: 0; }
 #mainHeader .hdr-title { width: 100%; max-width: 100%; font-size: 16px; line-height: 23px; font-weight: 600; letter-spacing: -.25px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #mainHeader .hdr-context { min-width: 0; margin-top: 2px; gap: 8px; }
 #mainHeader .hdr-badges { gap: 6px; }
 #mainHeader .hdr-badges > .badge { font-size: 11px; max-width: 170px; }
-#mainHeader .hdr-right { display: flex; align-items: center; flex: 0 0 auto; flex-wrap: nowrap; gap: 4px; padding: 0; min-height: var(--control-height); border: 0; border-radius: 0; background: none; box-shadow: none; }
+#mainHeader .hdr-right { display:flex; align-items:center; flex:0 0 auto; flex-wrap:nowrap; gap:2px; padding:0; min-height:var(--control-height); border:0; border-radius:0; background:none; box-shadow:none; }
 #mainHeader .hdr-right > .btn-mini, #mainHeader #hdrUsage {
   display: inline-flex; align-items: center; justify-content: center; gap: 7px; box-sizing: border-box;
-  height: var(--control-height); min-height: var(--control-height); padding: 7px 10px; margin: 0;
+  height:var(--control-height); min-height:var(--control-height); padding:5px 8px; margin:0;
   border: 1px solid transparent; border-radius: var(--control-radius); box-shadow: none; background: transparent;
-  color: var(--muted); font: 500 13px/20px var(--font-app,var(--font-main)); white-space: nowrap;
+  color:var(--muted); font:400 12px/20px var(--font-app,var(--font-main)); white-space:nowrap;
 }
 #mainHeader .hdr-right > .btn-mini:hover { background: var(--panel); border-color: var(--border); color: var(--title); }
 #mainHeader .hdr-right > .btn-mini:active { transform: none; background: var(--panel-2); }
 #mainHeader .hdr-right > .btn-mini > svg, #mainHeader #hdrUsage > svg { width: var(--control-icon-size); height: var(--control-icon-size); flex: 0 0 auto; }
-#mainHeader #hdrUsage, #mainHeader #btnSessUsage { background: var(--panel); border-color: color-mix(in srgb,var(--border) 70%,transparent); gap: 6px; }
-#mainHeader #hdrUsage { margin-right: 8px; cursor: pointer; }
+#mainHeader #hdrUsage, #mainHeader #btnSessUsage { background:transparent; border-color:transparent; gap:6px; }
+#mainHeader #hdrUsage { margin-right:0; cursor:pointer; }
 #mainHeader #hdrUsage:hover, #mainHeader #btnSessUsage:hover { color: var(--text); background: var(--panel-2); border-color: var(--border-strong); }
 #mainHeader #hdrUsage:empty { display: none; }
 #mainHeader :is(.hdr-usage-label,.hdr-usage-unit,.toolbar-metric-label,.toolbar-metric-unit) { font: inherit; color: var(--muted); }
-#mainHeader :is(.hdr-usage strong,.toolbar-metric-value) { font: 600 13px/20px var(--font-app,var(--font-main)); color: var(--title); font-variant-numeric: tabular-nums; }
+#mainHeader :is(.hdr-usage strong,.toolbar-metric-value) { font:500 12px/20px var(--font-app,var(--font-main)); color:var(--title); font-variant-numeric:tabular-nums; }
 #mainHeader #sessUsageLabel { display: inline-flex; align-items: center; gap: 5px; }
-#mainHeader #btnSessUsage { margin-left: 6px; }
-#mainHeader :is(#btnTheme,#btnHeaderMore) { width: var(--control-height); min-width: var(--control-height); padding: 8px; margin: 0; border: 1px solid transparent; border-radius: var(--control-radius); }
-#mainHeader #btnTheme { margin-left: 6px; }
+#mainHeader #btnSessUsage { margin-left:0; }
+#mainHeader #btnHeaderMore { width: var(--control-height); min-width: var(--control-height); padding: 8px; margin: 0; border: 1px solid transparent; border-radius: var(--control-radius); }
+#mainHeader #btnTheme { width:auto; min-width:32px; margin-left:0; padding:5px 8px; gap:6px; border:1px solid transparent; border-radius:var(--control-radius); background:transparent; color:var(--muted); }
+#mainHeader #btnTheme:hover { color: var(--title); background: var(--panel-2); border-color: var(--border-strong); }
+#mainHeader .hdr-right > .btn-mini:has(>svg.ui-icon) { color: var(--text); }
+#mainHeader #btnTheme .appearance-label { font:inherit; }
 #mainHeader #btnHeaderMore { display: inline-flex; order: 10; }
-#mainHeader #btnSubagents > svg { width: 18px; height: 18px; }
+#mainHeader #btnSubagents > svg { width:16px; height:16px; }
 
 /* Navigation has consistent labels and comfortable icon targets. */
 .side-workbench { min-height: 38px; gap: 10px; border-radius: 9px; font-size: 13px; }
@@ -119,6 +122,8 @@ button.ui-icon-only { display: inline-flex; align-items: center; justify-content
   #mainHeader .hdr-right > #btnSessUsage { display: none !important; }
   #mainHeader .hdr-left { flex-basis: 160px; }
   #mainHeader .hdr-badges { display: none; }
+  #mainHeader #btnTheme { padding: 8px; width: 36px; }
+  #mainHeader #btnTheme .appearance-label { display: none; }
 }
 @media (max-width: 740px) {
   #mainHeader { min-height: 72px; padding: 12px 14px; gap: 8px; }
@@ -127,6 +132,8 @@ button.ui-icon-only { display: inline-flex; align-items: center; justify-content
   #mainHeader .hdr-right { display: flex; flex: 0 0 auto; gap: 3px; }
   #mainHeader .hdr-right > :is(#btnFiles,#btnRunning,#btnSystemMonitor,#hdrUsage,#btnSessUsage,#btnSubagents,#btnGit) { display: none !important; }
   #mainHeader .hdr-right > :is(#btnTheme,#btnHeaderMore) { display: inline-flex !important; margin: 0; }
+  #mainHeader #btnTheme { width: 36px; padding: 8px; }
+  #mainHeader #btnTheme .appearance-label { display: none; }
   #mainHeader .hdr-context #pillRemote { display: none; }
   #dlg .dlg-head { padding: 16px; min-height: 58px; }
   #dlgTitle { font-size: 16px; line-height: 23px; }

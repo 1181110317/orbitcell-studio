@@ -339,7 +339,7 @@ const FAKE_ACP_SCRIPT = [
   "  if (!line.trim()) return;",
   "  let m; try { m = JSON.parse(line); } catch (e) { return; }",
   "  if (m.method === 'initialize') return send({ jsonrpc: '2.0', id: m.id, result: { protocolVersion: 1, agentCapabilities: {}, authMethods: [] } });",
-  "  if (m.method === 'session/new') return send({ jsonrpc: '2.0', id: m.id, result: { sessionId: 'acp-qa-session' } });",
+  "  if (m.method === 'session/new') return send({ jsonrpc: '2.0', id: m.id, result: { sessionId: 'acp-qa-session', models: { currentModelId: 'qa-acp-model', availableModels: [{modelId:'qa-acp-model',name:'QA model'}] } } });",
   "  if (m.method === 'session/prompt') {",
   "    prompts++;",
   "    const promptId = m.id;",
@@ -488,7 +488,7 @@ function reportCoverage() {
     // git fixture
     gitRun(TEMP_REAL, ['init', '--bare', REMOTE]);
     gitRun(REPO, ['init', '-b', 'main']);
-    gitRun(REPO, ['config', 'user.name', 'AgentHub QA']);
+    gitRun(REPO, ['config', 'user.name', 'OrbitCell QA']);
     gitRun(REPO, ['config', 'user.email', 'qa@example.invalid']);
     fs.writeFileSync(path.join(REPO, 'tracked.txt'), 'initial\n');
     gitRun(REPO, ['add', '-A']);
@@ -1227,7 +1227,7 @@ function reportCoverage() {
       eq(denyResult && denyResult.data && denyResult.data.remembered, false, 'a denied approval is not remembered');
       ok(/只有允许/.test(String(denyResult && denyResult.data && denyResult.data.warning)), 'deny+remember returns a readable warning', JSON.stringify(denyResult && denyResult.data));
       const denyResults = toolResultsOf(fake.requests[3] && fake.requests[3].payload);
-      eq(denyResults[denyResults.length - 1], '用户拒绝执行：run_cmd', 'the denied rerun was refused, not executed');
+      eq(String(denyResults[denyResults.length - 1]).replace(/^\[工具失败\] /,''), '用户拒绝执行：run_cmd', 'the denied rerun was refused, not executed');
       const allowResults = toolResultsOf(fake.requests[1] && fake.requests[1].payload);
       ok(allowResults.some(t => /AGENTHUB-PERM-PROBE/.test(t)), 'the earlier allowed run did produce tool output');
       const memAfterDeny = await GET('/api/permissions/memory?sessionId=' + sessionA);
@@ -1281,7 +1281,7 @@ function reportCoverage() {
       ok(turn2.done && turn2.done.code === 0, 'turn completed after deny', JSON.stringify(turn2.done));
       ok(deny && deny.code === 200 && deny.data && deny.data.ok === true, 'deny accepted', JSON.stringify(deny && deny.data));
       const denyResults = toolResultsOf(fake.requests[3] && fake.requests[3].payload);
-      eq(denyResults[denyResults.length - 1], '用户拒绝执行：run_cmd', 'the denied tool result is the refusal message, not the command output');
+      eq(String(denyResults[denyResults.length - 1]).replace(/^\[工具失败\] /,''), '用户拒绝执行：run_cmd', 'the denied tool result is the refusal message, not the command output');
       ok(!denyResults.some(t => /^AGENTHUB-API-PROBE/.test(t)), 'the denied command produced no tool output');
       endRoute();
 

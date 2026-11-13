@@ -1,7 +1,13 @@
-/* AgentHub workspace presentation. Loaded after the existing component styles.
+/* OrbitCell workspace presentation. Loaded after the existing component styles.
    Every surface uses the same theme tokens; behavior remains in app.js. */
 
-/* Palette families: six light, four dark. Existing theme IDs remain compatible. */
+/* Palette families: seven light, four dark. Existing theme IDs remain compatible. */
+body[data-theme="studio"] {
+  --bg: #ffffff; --panel: #f7f8fb; --panel-2: #f0f3f8; --panel-3: #e9edf5;
+  --title: #161b26; --text: #3d4656; --muted: #647083; --dim: #687487;
+  --accent: #365fd3; --accent-hover: #2b50bd; --accent-contrast: #ffffff;
+  --border: #e7eaf0; --border-strong: #dce1ea;
+}
 body[data-theme="paper"] {
   --bg: #ffffff; --panel: #f3f5f9; --panel-2: #eaf0f8; --panel-3: #e0e8f4;
   --title: #202937; --text: #2b3544; --muted: #59687a; --dim: #617086;
@@ -146,10 +152,10 @@ button:disabled { cursor: default; opacity: .55; }
   .proj-head.project-group .proj-new { opacity: 1; pointer-events: auto; }
 }
 .session-item { min-height: 35px; border-radius: 6px; padding: 6px 9px; }
-.session-item.project-child { padding-left: 42px; position: relative; }
+.session-item.project-child { padding-left: 18px; position: relative; }
 .session-item.project-child::before, .proj-more::before { display: none; }
 .session-item.project-child::after, .proj-more::after { display: none; }
-.session-item.project-child .si-run { left: 28px; }
+.session-item.project-child .si-run { left: 8px; }
 .proj-more { position: relative; display: flex; align-items: center; min-height: 28px; padding: 4px 10px 4px 42px; }
 .session-item.active { background: var(--accent-soft-2); }
 .session-item.active .si-title { color: var(--accent); font-weight: 600; }
@@ -242,7 +248,6 @@ body #messages .msg-assistant .turn-answer { border-left: 0; padding-left: 0; ma
 .composer-controls .ctrl-config .ctrl-pill { max-width: 240px; min-height: 30px; padding: 5px 8px; margin: 0; border: 1px solid var(--border); border-radius: 7px; background: var(--panel); }
 .composer-controls .ctrl-config .config-label, .composer-controls .ctrl-config .ctrl-label { display: inline; font-size: 11px; color: var(--muted); }
 .composer-controls .ctrl-config .dd-value { font-size: 12px; max-width: 145px; }
-.composer-controls .ctrl-config .think-toggle { min-height: 30px; font-size: 12px; border-radius: 7px; }
 .composer-hint { text-align: center; font-size: 11px; color: var(--dim); padding-top: 9px; }
 .composer-hint span { padding: 0 6px; }
 body.center-empty .es-title { font-size: 29px; color: var(--title); letter-spacing: -.7px; }
@@ -328,7 +333,8 @@ input[type="checkbox"], input[type="range"] { accent-color: var(--accent); }
 .theme-card-copy { padding: 0 3px; }
 .settings-theme-card .theme-card-copy b { font-size: 13px; font-weight: 600; color: var(--text); }
 .settings-theme-card .theme-card-copy small { font-size: 11px; color: var(--muted); margin-top: 4px; white-space: normal; line-height: 1.5; }
-.settings-theme-check { position: absolute; right: 12px; bottom: 34px; font-size: 12px; }
+.settings-theme-check { position: absolute; top: 15px; right: 15px; display: inline-flex; align-items: center; justify-content: center; width: 21px; height: 21px; margin: 0; border: 2px solid var(--bg); border-radius: 50%; background: var(--accent); color: var(--accent-contrast); }
+.settings-theme-check > svg { width: 12px; height: 12px; stroke-width: 2; }
 .appearance-footer { display: flex; flex-wrap: wrap; gap: 12px; justify-content: space-between; align-items: center; margin-top: 23px; padding-top: 18px; border-top: 1px solid var(--border); color: var(--muted); font-size: 12px; }
 
 /* Density adjusts spacing without sacrificing readable type. */

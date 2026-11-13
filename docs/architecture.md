@@ -1,12 +1,12 @@
 # Architecture
 
-AgentHub is a single Node.js process serving a static browser application and proxying every agent through one event model.
+OrbitCell is a single Node.js process serving a static browser application and proxying every agent through one event model.
 
 ## High-level view
 
 ```mermaid
 flowchart LR
-  UI["Browser UI<br/>chat · model center · usage · workspace"] -->|HTTP + WebSocket| SERVER["AgentHub server<br/>Express + ws"]
+  UI["Browser UI<br/>chat · model center · usage · workspace"] -->|HTTP + WebSocket| SERVER["OrbitCell server<br/>Express + ws"]
   SERVER --> ADAPTERS["Agent adapters<br/>Claude · Codex · ZCode · DSH · Gemini · OpenCode · ACP · Built-in"]
   ADAPTERS --> LOCAL["Local CLIs"]
   ADAPTERS --> REMOTE["WSL / SSH targets"]
@@ -92,20 +92,20 @@ data/
 └─ sessions-archive.jsonl    # archived sessions with message bodies
 ```
 
-Session bodies are split from the index so appending a long conversation does not rewrite the entire session list. On startup, missing bodies are loaded from `data/sessions/<id>.json`; if a body is corrupted, AgentHub preserves the bad file and attempts a best-effort rebuild from the event log.
+Session bodies are split from the index so appending a long conversation does not rewrite the entire session list. On startup, missing bodies are loaded from `data/sessions/<id>.json`; if a body is corrupted, OrbitCell preserves the bad file and attempts a best-effort rebuild from the event log.
 
 ### SQLite is a rebuildable index
 
 `data/agenthub.db` mirrors sessions, messages, turn events and usage for fast search and aggregation. It is not the source of truth:
 
-- Set `AGENTHUB_DB=0` to disable it and fall back to JSON scans.
+- Set `ORBITCELL_DB=0` to disable it and fall back to JSON scans.
 - Delete the `.db` file while the server is stopped to rebuild it.
 - The connection is closed when idle so the data directory can be moved or deleted while the server runs.
 
 ## Security boundaries
 
 - **Loopback by default.** A non-loopback bind requires a token or enabled WebUI accounts.
-- **Host trust.** Unauthenticated requests must use an IP literal, `localhost` or `AGENTHUB_ALLOWED_HOSTS` entry to resist DNS rebinding.
+- **Host trust.** Unauthenticated requests must use an IP literal, `localhost` or `ORBITCELL_ALLOWED_HOSTS` entry to resist DNS rebinding.
 - **CSRF.** WebUI account sessions use an httpOnly session cookie plus a double-submit CSRF header for writes.
 - **Encrypted stores.** SSH, MCP, speech, code-host, event and model-center records use AES-256-GCM with per-store keys. Provider API keys in `providers.json` are not encrypted by this layer; protect the data directory accordingly.
 - **Permission modes.** Tool use and shell commands can be gated per session; remembered allowances are scoped to project + agent + tool.
@@ -113,7 +113,7 @@ Session bodies are split from the index so appending a long conversation does no
 ## Directory layout
 
 ```text
-agenthub/
+orbitcell-studio/
 ├─ server.js                 # HTTP/WS server and API routes
 ├─ lib/
 │  ├─ agents.js              # Agent adapters
@@ -139,5 +139,5 @@ agenthub/
 
 - **No front-end build step.** Everything in `public/` is served directly; extensions can add themes and templates without rebuilding.
 - **No external database service.** SQLite uses Node’s built-in `node:sqlite` module.
-- **No cloud dependency.** AgentHub works on a local machine with local providers; network access is only needed for remote agents/providers you configure.
+- **No cloud dependency.** OrbitCell works on a local machine with local providers; network access is only needed for remote agents/providers you configure.
 - **Windows-first.** The launcher and some system integrations target Windows, while the Node server can run on other platforms where the underlying agent CLIs are available.

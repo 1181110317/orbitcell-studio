@@ -36,7 +36,7 @@ childProcess.execFile = original;
     fs.mkdirSync(work);
     run(dir, ['init', '--bare', remote]);
     run(work, ['init', '-b', 'main']);
-    run(work, ['config', 'user.name', 'AgentHub QA']);
+    run(work, ['config', 'user.name', 'OrbitCell QA']);
     run(work, ['config', 'user.email', 'qa@example.test']);
     fs.writeFileSync(path.join(work, 'probe.txt'), 'first\n');
     run(work, ['add', '-A']);

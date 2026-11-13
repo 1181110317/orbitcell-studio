@@ -1,4 +1,4 @@
-// Exhaustive browser layout regression for AgentHub's dialogs, menus, panels,
+// Exhaustive browser layout regression for OrbitCell's dialogs, menus, panels,
 // rich-message states and narrow viewports. Everything runs against isolated
 // data and a disposable git workspace.
 const assert = require('node:assert/strict');
@@ -33,7 +33,7 @@ fs.writeFileSync(path.join(WORK, '.agenthub.json'), JSON.stringify({
 try {
   execFileSync('git', ['init'], { cwd: WORK, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.email', 'ui-fixture@example.invalid'], { cwd: WORK, stdio: 'ignore' });
-  execFileSync('git', ['config', 'user.name', 'AgentHub UI Fixture'], { cwd: WORK, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'OrbitCell UI Fixture'], { cwd: WORK, stdio: 'ignore' });
   execFileSync('git', ['add', '.'], { cwd: WORK, stdio: 'ignore' });
   execFileSync('git', ['commit', '-m', 'fixture'], { cwd: WORK, stdio: 'ignore' });
   fs.appendFileSync(path.join(WORK, 'surface-0.js'), '// modified line for diff preview\n');
@@ -117,7 +117,7 @@ function frameEval(source) {
 }
 async function resetSurface(width, height, theme) {
   await evaluate(`(()=>{const f=document.getElementById('surfaceFixture');f.style.width='${width}px';f.style.height='${height}px';return true})()`);
-  await frameEval(`(()=>{closeDlg();closePalette();closeFlyMenu();closeCtxPanel();closePage();closeReviewPanel();hideTermPanel();document.getElementById('confirmCancel')?.click();document.querySelectorAll('.toast').forEach(x=>x.remove());applyTheme(${JSON.stringify(theme)});storageSet('ah.zoom',${UI_ZOOM});applyZoom();toggleSidebar(false);return true})()`);
+  await frameEval(`(()=>{closeDlg();window.AgentHubManagement?.close();window.AgentHubAgentCenter?.close();closePalette();closeFlyMenu();closeCtxPanel();closePage();closeReviewPanel();hideTermPanel();document.getElementById('confirmCancel')?.click();document.querySelectorAll('.toast').forEach(x=>x.remove());applyTheme(${JSON.stringify(theme)});storageSet('ah.zoom',${UI_ZOOM});applyZoom();toggleSidebar(false);return true})()`);
   await sleep(80);
 }
 async function inspect(kind) {
@@ -125,6 +125,9 @@ async function inspect(kind) {
     const d=document,w=window,visible=e=>!!e&&getComputedStyle(e).display!=='none'&&e.getBoundingClientRect().width>0;
     let root=null;
     if(${JSON.stringify(kind)}==='dialog')root=!d.getElementById('overlay').classList.contains('hidden')&&d.getElementById('dlg');
+    // Models and capabilities now use a management workspace. Keep the same
+    // real viewport/overflow checks when their old compatibility entry opens it.
+    if(${JSON.stringify(kind)}==='dialog'&&!root)root=d.body.classList.contains('management-open')?d.getElementById('managementPage'):d.body.classList.contains('agent-center-open')?d.getElementById('agentCenterPage'):null;
     if(${JSON.stringify(kind)}==='confirm')root=!d.getElementById('confirmWrap').classList.contains('hidden')&&d.getElementById('confirmBox');
     if(${JSON.stringify(kind)}==='palette')root=d.querySelector('#palette .pal-box');
     if(${JSON.stringify(kind)}==='fly')root=d.getElementById('flyMenu');
@@ -137,7 +140,7 @@ async function inspect(kind) {
     const r=root.getBoundingClientRect();
     const clipped=e=>{for(let p=e.parentElement;p&&p!==root.parentElement;p=p.parentElement){const s=getComputedStyle(p);if(/auto|scroll|hidden|clip/.test(s.overflowX))return true;}return false;};
     const bad=[...root.querySelectorAll('*')].filter(visible).filter(e=>{const x=e.getBoundingClientRect();return (x.left<-2||x.right>w.innerWidth+2)&&!clipped(e);}).slice(0,8).map(e=>e.id||e.className||e.tagName);
-    const close=(${JSON.stringify(kind)}==='dialog'?d.getElementById('dlgClose'):null);
+    const close=(${JSON.stringify(kind)}==='dialog'?root.id==='dlg'?d.getElementById('dlgClose'):root.querySelector('.manage-context [data-manage-close],.ac-stage-bar [data-ac-action="back"]'):null);
     let closeReachable=true;if(close){const x=close.getBoundingClientRect(),hit=d.elementFromPoint(x.left+x.width/2,x.top+x.height/2);closeReachable=hit===close||close.contains(hit);}
     return {missing:false,left:r.left,top:r.top,right:r.right,bottom:r.bottom,width:r.width,height:r.height,viewport:[w.innerWidth,w.innerHeight],bad,closeReachable,pageOverflow:d.documentElement.scrollWidth>w.innerWidth+1,title:d.getElementById('dlgTitle')?.textContent||'',errors:(w.__surfaceErrors||[]).slice()};
   })()`);
@@ -225,18 +228,18 @@ function assertSurface(name, state) {
         const zoom=document.getElementById('setZoom');zoom.value='0.9';
         for(const option of select.options){select.value=option.value;select.dispatchEvent(new Event('change',{bubbles:true}));const pane=document.getElementById(option.value+'-panel');states.push(!pane.hidden&&document.querySelectorAll('.settings-pane:not([hidden])').length===1&&document.querySelector('.settings-quicknav .active').dataset.settingsJump===option.value&&storageGet('ah.settingsSection')===option.value);}
         select.value=start;select.dispatchEvent(new Event('change',{bubbles:true}));
-        return {compact,start,count:select.options.length,states,draft:zoom.value,contentRatio:content.getBoundingClientRect().height/dialog.getBoundingClientRect().height};
+        return {compact,start,count:select.options.length,paneCount:document.querySelectorAll('.settings-pane').length,states,draft:zoom.value,contentRatio:content.getBoundingClientRect().height/dialog.getBoundingClientRect().height};
       })()`);
       assert.equal(settings.compact, width <= 740);
       assert.equal(settings.start, 'settings-preferences');
-      assert.equal(settings.count, 11);
+      assert.equal(settings.count, settings.paneCount);
       assert(settings.states.every(Boolean), 'all setting sections remain reachable');
       assert.equal(settings.draft, '0.9', 'switching setting sections must retain unsaved fields');
       assert(settings.contentRatio >= .2, `${width}x${height}: navigation leaves too little room for settings ${JSON.stringify(settings)}`);
       assertSurface(`${width}x${height} compact settings navigation`, await inspect('dialog'));
       checked++;
     }
-    console.log('  ✓ all 11 settings sections, retained drafts and usable content height');
+    console.log('  ✓ all settings sections, retained drafts and usable content height');
 
     for (const [width, height] of [[320, 640], [390, 844], [1440, 900]]) {
       await resetSurface(width, height, 'ink');

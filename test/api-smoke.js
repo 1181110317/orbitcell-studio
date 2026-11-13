@@ -59,7 +59,7 @@ function stopServer() {
     // ---- 只读端点形状 ----
     let r = await j('/');
     const html = await r.text();
-    ok(r.status === 200 && html.includes('AgentHub'), 'GET / 返回页面');
+    ok(r.status === 200 && html.includes('OrbitCell'), 'GET / 返回页面');
     ok((await body('/api/meta')).code === 200, 'GET /api/meta');
     ok((await body('/api/settings')).code === 200, 'GET /api/settings');
     ok((await body('/api/logs')).code === 200, 'GET /api/logs（诊断环形缓冲）');

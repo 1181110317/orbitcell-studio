@@ -1,6 +1,6 @@
 # Feature reference
 
-This page describes what AgentHub does and what each feature expects from the environment around it. For installation and access control, see [Deployment](deployment.md); for variables and agent setup, see [Configuration](configuration.md).
+This page describes what OrbitCell does and what each feature expects from the environment around it. For installation and access control, see [Deployment](deployment.md); for variables and agent setup, see [Configuration](configuration.md).
 
 ## Feature map
 
@@ -49,7 +49,7 @@ The built-in agent does not need a coding CLI. Depending on the provider configu
 - shell command execution in the session workspace
 - web search and page fetch
 - one-click PowerPoint, Word and Excel generation
-- MCP tools configured in AgentHub
+- MCP tools configured in OrbitCell
 - scheduling proposals that always create a disabled draft for the user to review
 
 ## Chat experience
@@ -101,7 +101,7 @@ The built-in agent does not need a coding CLI. Depending on the provider configu
 - **17 presets** — Anthropic, OpenAI, DeepSeek, OpenRouter, Z.ai, Moonshot, MiniMax, Groq, Together, local Ollama and LM Studio and more; preset fields prefill base URL, protocol and common models.
 - **Provider management** — add/edit/delete locally; optional import from an existing cc-switch database on first launch.
 - **Health checks** — call `/models` without spending tokens or run a 1-token chat probe; latency and readable failures are reported.
-- **Balance and quota** — provider balance queries where supported, manual monthly/window limits, Codex official subscription windows, and `/usage-limits` snapshots.
+- **Balance and quota** — provider cards, account details and conversation headers share balances, credits and allowance windows. Automatic sources include DeepSeek, OpenRouter, MiniMax Token Plan, Moonshot and Codex OAuth. New API token quotas and custom read-only JSON mappings support additional services, including daily, weekly and monthly allowances with reset times. Manual spending limits remain separate from provider-reported quota. See [provider quotas](provider-quotas.md).
 - **Shared model routes** — per-agent provider/model/reasoning defaults.
 - **Protocol gateway** — translates Anthropic Messages, OpenAI Responses and OpenAI Chat formats, including tools, images and streaming.
 - **Remote routes** — SSH/WSL sessions can reach converted routes through target-side loopback forwarding.
@@ -161,19 +161,19 @@ The built-in agent does not need a coding CLI. Depending on the provider configu
 
 ## Security & data
 
-- **Local-first storage** — JSON is authoritative; SQLite is a rebuildable index. `AGENTHUB_DB=0` disables the SQLite mirror.
+- **Local-first storage** — JSON is authoritative; SQLite is a rebuildable index. `ORBITCELL_DB=0` disables the SQLite mirror.
 - **Encrypted stores** — SSH credentials, MCP configuration/OAuth tokens, speech settings, code-host tokens, event triggers and model-center configuration use AES-256-GCM with per-store keys. Provider API keys in `providers.json` are a plain JSON field; protect the data directory and do not publish that file.
-- **Access control** — loopback by default; shared `AGENTHUB_TOKEN`, read-only `AGENTHUB_RO_TOKEN`, optional WebUI account login with scrypt password hashing.
+- **Access control** — loopback by default; shared `ORBITCELL_TOKEN`, read-only `ORBITCELL_RO_TOKEN`, optional WebUI account login with scrypt password hashing.
 - **Browser security** — httpOnly session cookies, CSRF double-submit headers for writes, per-IP login rate limits and signing-key rotation on password change.
-- **Host checks** — DNS-rebinding protection for loopback access; explicit `AGENTHUB_ALLOWED_HOSTS` for reverse proxies.
+- **Host checks** — DNS-rebinding protection for loopback access; explicit `ORBITCELL_ALLOWED_HOSTS` for reverse proxies.
 - **Permission modes** — ask, accept-edits, plan and auto modes; remembered allowances are scoped to project + agent + tool.
 - **Export and migration** — encrypted records export without their keys; missing keys preserve ciphertext rather than silently replacing it.
 - **Rebuildable index** — deleting `data/agenthub.db` while the server is stopped is safe; JSON remains the source of truth.
 
 ## Known limits
 
-- Agent-specific limitations are shown in the UI where relevant. For example, DSH headless does not expose token deltas or AgentHub permission dialogs; Claude, Codex and ZCode require compatible versions for native features.
+- Agent-specific limitations are shown in the UI where relevant. For example, DSH headless does not expose token deltas or OrbitCell permission dialogs; Claude, Codex and ZCode require compatible versions for native features.
 - External provider accounts, real SSH hosts and third-party CLI edge cases are not exercised by the default test suite. See [Testing](testing.md).
 - The docked browser requires a local Chrome or Edge installation and is not a full remote-browser service.
-- AgentHub is Windows-first; the Node entry point may work on macOS/Linux, but the bundled launcher and some integrations are Windows-oriented.
+- OrbitCell is Windows-first; the Node entry point may work on macOS/Linux, but the bundled launcher and some integrations are Windows-oriented.
 - There is no built-in cloud sync, team workspace or mobile native app. Use LAN/VPN access or a reverse proxy for remote browsing.

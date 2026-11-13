@@ -14,7 +14,7 @@ body { --diff-add-color: light-dark(#176b35,#7ee2a0); --diff-del-color: light-da
 .mm-zoom-controls { display:inline-flex; gap:1px; border-right:1px solid var(--border); padding-right:7px; }
 .mm-toolbar .mm-copy svg { width:14px; height:14px; fill:none; stroke:currentColor; stroke-width:1.4; }
 .mm-viewport { overflow:auto; max-height:min(520px,65vh); padding:12px; min-height:80px; }
-.mm-render { width:calc(min(100%,calc(min(460px,58vh) * var(--mm-ratio,2))) * var(--mm-scale,1)); margin-inline:auto; }
+.mm-render { width:calc(min(100%,var(--mm-native-width,100%),calc(min(460px,58vh) * var(--mm-ratio,2))) * var(--mm-scale,1)); margin-inline:auto; }
 .mm-render>svg { display:block; width:100%; max-width:none!important; height:auto; }
 .mermaid-box[data-mm-scale]:not([data-mm-scale="1"]) .mm-viewport { cursor:grab; }
 .mm-viewport.is-panning { cursor:grabbing!important; user-select:none; }
@@ -215,10 +215,10 @@ button.ui-icon-action>.ui-icon-slot { pointer-events:none; }
 summary { list-style:none; }
 summary::-webkit-details-marker { display:none; }
 details:not(.step):not(.turn-diff-dir):not(.status-command)>summary { display:flex; align-items:center; gap:9px; }
-details:not(.step):not(.turn-diff-dir):not(.status-command)>summary::after { content:''; display:block; flex:0 0 7px; width:7px; height:7px; padding:0; margin:0 4px 3px auto; border:solid var(--muted); border-width:0 1.5px 1.5px 0; transform:rotate(45deg); transition:transform .15s; }
+details:not(.step):not(.turn-diff-dir):not(.status-command):not(.reply-image-collection)>summary::after { content:''; display:block; flex:0 0 7px; width:7px; height:7px; padding:0; margin:0 4px 3px auto; border:solid var(--muted); border-width:0 1.5px 1.5px 0; transform:rotate(45deg); transition:transform .15s; }
 .settings-mobile-nav>.select-control { width:auto; flex:1; min-width:0; }
-details[open]:not(.step):not(.turn-diff-dir):not(.status-command)>summary::after { transform:rotate(225deg); margin-bottom:-3px; }
-.reply-image-collection>summary>span { float:none; margin-left:auto; }
+details[open]:not(.step):not(.turn-diff-dir):not(.status-command):not(.reply-image-collection)>summary::after { transform:rotate(225deg); margin-bottom:-3px; }
+.reply-image-collection>summary>span { float:none; }
 .composer-location { flex-wrap:wrap; gap:7px; padding:4px 1px 10px; }
 .composer-insights { display:flex; align-items:center; gap:6px; margin-left:auto; padding-left:12px; border-left:1px solid var(--border); min-width:0; }
 body.chatonly-mode .composer-location { display:flex; }

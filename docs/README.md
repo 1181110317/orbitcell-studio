@@ -1,4 +1,4 @@
-# AgentHub documentation
+# OrbitCell documentation
 
 [← Back to the project README](../README.md)
 
@@ -6,9 +6,9 @@ Start with the page that matches what you want to do.
 
 | If you want to… | Read |
 | --- | --- |
-| Install AgentHub and open it for the first time | [Deployment → quick start](deployment.md#quick-start) |
-| Access AgentHub from another device on my LAN or phone | [Deployment → LAN / phone access](deployment.md#lan--phone-access) |
-| Put AgentHub behind Nginx, Caddy or a domain | [Deployment → reverse proxy](deployment.md#reverse-proxy-and-https) |
+| Install OrbitCell and open it for the first time | [Deployment → quick start](deployment.md#quick-start) |
+| Access OrbitCell from another device on my LAN or phone | [Deployment → LAN / phone access](deployment.md#lan--phone-access) |
+| Put OrbitCell behind Nginx, Caddy or a domain | [Deployment → reverse proxy](deployment.md#reverse-proxy-and-https) |
 | Know every feature in detail | [Feature reference](features.md) |
 | Manage Agents, models, environments and diagnostics | [Agent management](agent-management.md) |
 | Browse models, connections, skills, MCP servers and presets | [Management centers](management-centers.md) |
@@ -26,7 +26,7 @@ Start with the page that matches what you want to do.
 Browser (public/, vanilla SPA)
         │  HTTP + WebSocket
         ▼
-AgentHub server (server.js, Node.js + Express + ws)
+OrbitCell server (server.js, Node.js + Express + ws)
         ├─ agent adapters → local CLIs · WSL · SSH
         ├─ model gateway → Anthropic / OpenAI / Magpie / compatible APIs
         └─ workspace tools → files · editor · terminal · Git/PR · MCP

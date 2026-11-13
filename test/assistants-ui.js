@@ -126,8 +126,8 @@ const dialogAccept = (value) => ev(`(async()=>{
     await check('新建自定义助手（走真实表单）', async () => {
       const out = await ev(`(async()=>{
         await showSettings('settings-assistants');
-        for(let i=0;i<60 && !document.getElementById('assistantAdd');i++) await new Promise(r=>setTimeout(r,80));
-        document.getElementById('assistantAdd').click();
+        for(let i=0;i<60 && !document.getElementById('capPrimary');i++) await new Promise(r=>setTimeout(r,80));
+        document.getElementById('capPrimary').click();
         await new Promise(r=>setTimeout(r,200));
         document.getElementById('asstName').value='接口联调';
         document.getElementById('asstGlyph').value='🔌';

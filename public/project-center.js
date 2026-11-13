@@ -1,0 +1,87 @@
+/* Project identities are host + directory; Agent groups keep their own sessions. */
+(() => {
+  'use strict';
+  const icon = name => window.AgentHubIcons.svg(name), labels = new Map();
+  let controller;
+  const key = (cwd, hostId = '') => (hostId || 'local') + '|' + (/^[a-z]:[\\/]|^\\\\/i.test(cwd || '') ? String(cwd).replace(/\//g,'\\').replace(/\\+$/,'').toLowerCase() : String(cwd || '').replace(/\/+$/,'') || '/');
+  const agentName = id => S.agents.find(agent => agent.id === id)?.name || id;
+  const mark = id => `<span class="pc-agent-mark">${window.AgentHubIcons.agent(id)}</span>`;
+  function setLabels(items) { labels.clear(); for (const item of items) labels.set(key(item.cwd,item.hostId), item.name); renderSessions(); }
+  async function refreshLabels() { try { setLabels((await api('/api/projects/labels')).projects); } catch { /* Existing sessions remain available on older backends. */ } }
+  async function open(initialId) {
+    if(controller?.host.active()){controller.select(initialId || '');return;}
+    const host = window.AgentHubManagement.open('projects','项目管理');
+    const state = { projects:[], hosts:S.hosts, selected:initialId||'', query:'', archived:false, agent:'', showArchivedSessions:false, legacy:false, seq:0, limit:40, sessionLimit:80, editorDraft:null };
+    controller = { host, select(id){state.selected=id;state.agent='';draw();} };
+    const active=host.active;
+    const report=error=>window.AgentHubManagement.notice(host.body.querySelector('#pcNotice'),error.message || String(error));
+    const action=(selector,fn)=>{const button=host.body.querySelector(selector);if(button)button.onclick=()=>withPendingButton(button,async()=>{try{await fn();}catch(error){if(active())report(error);}},'处理中…');};
+    const target=p=>!p.hostId?'本机':p.hostId==='wsl'?'WSL':state.hosts.find(h=>h.id===p.hostId)?.name||'已移除的 SSH 主机';
+    const writable=()=>!S.readOnly&&!state.legacy;
+    function fallback() {
+      const groups=new Map();
+      for(const session of S.sessions){if(!session.cwd)continue;const identity=key(session.cwd,session.remoteHostId);if(!groups.has(identity))groups.set(identity,{id:identity,cwd:session.cwd,hostId:session.remoteHostId||'',name:baseName(session.cwd)||session.cwd,agentIds:[],agents:[],sessions:[],registered:false});const project=groups.get(identity);project.sessions.push(session);if(!project.agents.includes(session.agent))project.agents.push(session.agent);}
+      return [...groups.values()];
+    }
+    async function load() {
+      const seq=++state.seq;
+      if(!S.agents?.length){await refreshData();if(!active()||seq!==state.seq)return;}
+      try { const result=await api('/api/projects');if(!active()||seq!==state.seq)return;state.projects=result.projects;state.hosts=result.hosts;state.legacy=false;setLabels(result.projects.filter(p=>p.registered)); }
+      catch(error){if(!active()||seq!==state.seq)return;if(error.message!=='404')throw error;state.projects=fallback();state.legacy=true;}
+      draw();
+    }
+    function draw() {
+      if(!active())return;
+      const selected=state.projects.find(p=>p.id===state.selected),list=state.projects.filter(p=>!!p.archived===state.archived&&(!state.query||[p.name,p.cwd,target(p)].join(' ').toLowerCase().includes(state.query.toLowerCase())));
+      host.body.innerHTML=`<div class="manage-layout"><aside class="manage-sidebar"><div class="manage-brand"><div><strong>项目管理</strong><small>按电脑、目录和 Agent 整理任务</small></div><button type="button" id="pcSidebarAdd" aria-label="添加项目" ${writable()?'':'disabled'}>${icon('plus')}</button></div><nav class="manage-nav" aria-label="项目管理分区"><button type="button" data-pc-view="active" class="${!state.archived?'active':''}">${icon('folder')}<span>进行中的项目</span><small>${state.projects.filter(p=>!p.archived).length}</small></button><button type="button" data-pc-view="archived" class="${state.archived?'active':''}">${icon('archive')}<span>归档项目</span><small>${state.projects.filter(p=>p.archived).length}</small></button></nav><div class="manage-nav-caption">项目目录</div><div class="manage-source-list">${list.map(p=>`<button type="button" class="manage-source-button ${selected?.id===p.id?'active':''}" data-pc-project="${esc(p.id)}">${icon('folder')}<span>${esc(p.name)}</span><small>${p.sessions.length}</small></button>`).join('')}</div>${window.AgentHubManagement.sidebarEnd('projects')}</aside><main class="manage-workspace">${window.AgentHubManagement.context('项目管理'+(selected?' / '+selected.name:''),'pcRefresh','刷新项目')}<div class="manage-scroll"><div id="pcNotice" class="manage-notice" hidden></div><div id="pcContent"></div></div></main></div>`;
+      if(state.legacy)window.AgentHubManagement.notice(host.body.querySelector('#pcNotice'),'已从现有会话整理项目。登记、重命名和项目 Agent 设置需要加载新版后端。','warn');
+      const root=host.body.querySelector('#pcContent');
+      if(selected)detail(root,selected);else overview(root,list);
+      host.body.querySelectorAll('[data-pc-project]').forEach(button=>button.onclick=()=>{state.selected=button.dataset.pcProject;state.agent='';state.showArchivedSessions=false;window.AgentHubManagement.setMenu(false);draw();});
+      host.body.querySelectorAll('[data-pc-view]').forEach(button=>button.onclick=()=>{state.selected='';state.archived=button.dataset.pcView==='archived';window.AgentHubManagement.setMenu(false);draw();});
+      action('#pcRefresh',load);action('#pcSidebarAdd',()=>editor());
+    }
+    function overview(root,list) {
+      root.innerHTML=`<header class="manage-heading"><div><h2>${state.archived?'归档项目':'项目'}</h2><p>同一目录可供多个 Agent 使用，会话按 Agent 分开显示。</p></div><button type="button" class="btn" id="pcAdd" ${writable()?'':'disabled'}>${icon('plus')}添加项目</button></header><div class="manage-toolbar"><label class="manage-search">${icon('search')}<input id="pcSearch" aria-label="搜索项目" placeholder="搜索项目、目录或电脑" value="${esc(state.query)}"></label></div><div class="pc-project-grid" id="pcCards">${list.slice(0,state.limit).map(p=>`<button type="button" class="pc-project-card" data-pc-project="${esc(p.id)}"><span class="pc-folder">${icon('folderOpen')}</span><span class="pc-project-copy"><strong>${esc(p.name)}</strong><small title="${esc(p.cwd)}">${esc(p.cwd)}</small></span>${p.pinned?`<span class="pc-pin">${icon('pin')}</span>`:''}<span class="pc-project-location">${icon(p.hostId?'server':'monitor')}${esc(target(p))}</span><span class="pc-project-agents">${p.agents.slice(0,5).map(mark).join('')}<small>${p.agents.length} 个 Agent · ${p.sessions.length} 个会话</small></span></button>`).join('')||`<div class="manage-empty">${icon('folder')}<strong>${state.query?'没有匹配的项目':state.archived?'暂无归档项目':'登记一个项目目录'}</strong><p>已有会话会按电脑与目录自动整理到这里。</p></div>`}</div>${list.length>state.limit?'<button type="button" class="btn ghost" id="pcMore">显示更多项目</button>':''}`;
+      const search=root.querySelector('#pcSearch');search.oninput=()=>{state.query=search.value;state.limit=40;const selection=search.selectionStart;overview(root,state.projects.filter(p=>!!p.archived===state.archived&&[p.name,p.cwd,target(p)].join(' ').toLowerCase().includes(state.query.toLowerCase())));bindCards();const next=root.querySelector('#pcSearch');next.focus();next.setSelectionRange(selection,selection);};
+      action('#pcAdd',()=>editor());action('#pcMore',()=>{state.limit+=40;draw();});
+    }
+    function bindCards(){host.body.querySelectorAll('#pcCards [data-pc-project]').forEach(button=>button.onclick=()=>{state.selected=button.dataset.pcProject;state.agent='';draw();});}
+    function allowed(project) { return S.agents.filter(agent=>S.settings?.agentPreferences?.[agent.id]?.enabled!==false&&(!project.agentIds.length||project.agentIds.includes(agent.id))&&(!project.hostId||!['builtin','chatgpt-web'].includes(agent.id)&&!agent.acp)); }
+    function detail(root,p) {
+      const choices=allowed(p),chosen=choices.some(a=>a.id===p.defaultAgent)?p.defaultAgent:choices.some(a=>a.id===S.curAgent)?S.curAgent:choices[0]?.id||'';
+      root.innerHTML=`<header class="manage-heading pc-detail-heading"><div><button type="button" class="pc-back" id="pcBack">${icon('chevronLeft')}全部项目</button><h2>${icon('folderOpen')}${esc(p.name)}</h2><p class="pc-project-path">${icon(p.hostId?'server':'monitor')}${esc(target(p))}<span>${esc(p.cwd)}</span></p>${p.description?`<p>${esc(p.description)}</p>`:''}</div><div class="pc-heading-actions"><button type="button" class="btn ghost" id="pcEdit" ${writable()?'':'disabled'}>${icon('sliders')}项目设置</button><button type="button" class="btn ghost" id="pcPin" ${writable()?'':'disabled'}>${icon('pin')}${p.pinned?'取消常用':'设为常用'}</button></div></header><div class="pc-create"><span>${icon('plus')}在此项目新建会话</span><select id="pcNewAgent" aria-label="新会话使用的 Agent" ${S.readOnly?'disabled':''}>${choices.map(a=>`<option value="${esc(a.id)}" ${a.id===chosen?'selected':''}>${esc(a.name)}</option>`).join('')}</select><button type="button" class="btn" id="pcNewSession" ${S.readOnly||!chosen||p.hostMissing?'disabled':''}>新建会话 ${icon('arrowRight')}</button></div>${p.hostMissing?'<p class="manage-notice error">此项目的 SSH 主机已移除，请先在运行环境中恢复主机配置。</p>':''}<div class="pc-session-tools"><div class="pc-agent-tabs" role="tablist" aria-label="项目 Agent 会话"><button type="button" data-pc-agent="" role="tab" aria-selected="${!state.agent}">全部 Agent <small>${p.sessions.length}</small></button>${p.agents.map(agent=>`<button type="button" role="tab" data-pc-agent="${esc(agent)}" aria-selected="${state.agent===agent}">${mark(agent)}${esc(agentName(agent))}<small>${p.sessions.filter(s=>s.agent===agent).length}</small></button>`).join('')}</div><label><input type="checkbox" id="pcArchivedSessions" ${state.showArchivedSessions?'checked':''}>包含归档会话</label></div><div id="pcSessions"></div><footer class="pc-project-footer"><span>${p.registered?'项目档案已保存':'由现有会话自动发现，可在项目设置中登记'} · 文件仍位于原目录</span><button type="button" class="btn-mini" id="pcArchive" ${writable()?'':'disabled'}>${p.archived?'恢复项目':'归档项目'}</button></footer>`;
+      const sessions=p.sessions.filter(s=>(!state.agent||s.agent===state.agent)&&(state.showArchivedSessions||!s.archived));
+      const groups=state.agent?[state.agent]:[...new Set(sessions.map(s=>s.agent))];
+      root.querySelector('#pcSessions').innerHTML=groups.length?groups.map(agent=>`<section class="pc-agent-section"><header>${mark(agent)}<h3>${esc(agentName(agent))}</h3><span>${sessions.filter(s=>s.agent===agent).length} 个会话</span><button type="button" class="btn-mini" data-pc-agent-config="${esc(agent)}">Agent 设置 ${icon('chevronRight')}</button></header><div>${sessions.filter(s=>s.agent===agent).slice(0,state.sessionLimit).map(s=>`<button type="button" class="pc-session-row" data-pc-session="${esc(s.id)}">${icon('chat')}<span><strong>${esc(s.title)}</strong><small>${s.archived?'已归档':s.running||S.running.has(s.id)?'正在运行':'可继续对话'}</small></span><time>${esc(fmtTime(s.updatedAt))}</time>${icon('chevronRight')}</button>`).join('')||'<p class="pc-no-sessions">此 Agent 暂无会话，可以从上方创建。</p>'}${sessions.filter(s=>s.agent===agent).length>state.sessionLimit?'<button type="button" class="btn-mini pc-more-sessions" data-pc-more="'+esc(agent)+'">显示更多会话（'+state.sessionLimit+' / '+sessions.filter(s=>s.agent===agent).length+'）</button>':''}</div></section>`).join(''):`<div class="manage-empty">${icon('chat')}<strong>还没有会话</strong><p>选择上方的 Agent，开始这个项目的任务。</p></div>`;
+      action('#pcBack',()=>{state.selected='';draw();});action('#pcEdit',()=>editor(p));
+      action('#pcPin',()=>patch(p,{pinned:!p.pinned}));action('#pcArchive',()=>patch(p,{archived:!p.archived}));
+      action('#pcNewSession',async()=>{const agent=root.querySelector('#pcNewAgent').value;const session=await api('/api/sessions',{method:'POST',body:{agent,cwd:p.cwd,remoteHostId:p.hostId||'',...agentTargetPermission(agent,p.hostId||'')}});await refreshData();if(!active())return;window.AgentHubManagement.close();await openSession(session.id);});
+      root.querySelectorAll('[data-pc-agent]').forEach(button=>button.onclick=()=>{state.agent=button.dataset.pcAgent;detail(root,p);});
+      root.querySelectorAll('[data-pc-more]').forEach(button=>button.onclick=()=>{state.sessionLimit+=80;detail(root,p);});
+      root.querySelectorAll('[data-pc-session]').forEach(button=>button.onclick=()=>{window.AgentHubManagement.close();openSession(button.dataset.pcSession).catch(error=>toast(error.message,'err'));});
+      root.querySelectorAll('[data-pc-agent-config]').forEach(button=>button.onclick=()=>window.AgentHubAgentCenter.open({agent:button.dataset.pcAgentConfig,hostId:p.hostId||''}));
+      root.querySelector('#pcArchivedSessions').onchange=event=>{state.showArchivedSessions=event.target.checked;detail(root,p);};
+      enhanceDialogSelects(root);
+    }
+    async function patch(project,value) { await api('/api/projects/'+encodeURIComponent(project.id),{method:'PATCH',body:value});await load(); }
+    function editor(project,existingDraft) {
+      if(!writable())return;
+      const d=existingDraft||{name:project?.name||'',cwd:project?.cwd||curSession()?.cwd||'',hostId:project?.hostId||'',description:project?.description||'',agentIds:[...project?.agentIds||[]],defaultAgent:project?.defaultAgent||''};
+      state.editorDraft=d;
+      openDlg(project?'项目设置':'添加项目',`<form id="pcEditor" class="pc-editor"><div class="fld"><label for="pcName">项目名称</label><input id="pcName" maxlength="160" value="${esc(d.name)}" required></div><div class="fld"><label for="pcHost">运行环境</label><select id="pcHost" ${project?'disabled':''}><option value="">本机</option>${S.wsl?.available||d.hostId==='wsl'?'<option value="wsl"'+(d.hostId==='wsl'?' selected':'')+'>WSL</option>':''}${state.hosts.map(h=>`<option value="${esc(h.id)}" ${h.id===d.hostId?'selected':''}>SSH · ${esc(h.name||h.host)}</option>`).join('')}${d.hostId&&d.hostId!=='wsl'&&!state.hosts.some(h=>h.id===d.hostId)?'<option value="'+esc(d.hostId)+'" selected>主机已移除</option>':''}</select></div><div class="fld"><label for="pcCwd">项目目录</label><div class="pc-directory"><input id="pcCwd" value="${esc(d.cwd)}" ${project?'readonly':''} placeholder="绝对路径" required><button type="button" class="btn ghost" id="pcBrowse" ${project?'disabled':''}>${icon('folder')}选择</button></div><small>同名目录在不同电脑上属于不同项目；登记不会执行命令或移动文件。</small></div><div class="fld"><label for="pcDescription">说明</label><textarea id="pcDescription" maxlength="2000" rows="2">${esc(d.description)}</textarea></div><fieldset class="pc-agent-picker"><legend>项目 Agent</legend><p>不勾选时允许所有兼容 Agent；已有会话始终保留。</p>${S.agents.filter(a=>!d.hostId||!['builtin','chatgpt-web'].includes(a.id)&&!a.acp).map(a=>`<label><input type="checkbox" data-pc-member="${esc(a.id)}" ${d.agentIds.includes(a.id)?'checked':''}>${mark(a.id)}<span>${esc(a.name)}</span></label>`).join('')}</fieldset><div class="fld"><label for="pcDefaultAgent">新会话默认 Agent</label><select id="pcDefaultAgent"><option value="">跟随当前选择</option>${S.agents.filter(a=>(!d.hostId||!['builtin','chatgpt-web'].includes(a.id)&&!a.acp)&&(!d.agentIds.length||d.agentIds.includes(a.id))).map(a=>`<option value="${esc(a.id)}" ${d.defaultAgent===a.id?'selected':''}>${esc(a.name)}</option>`).join('')}</select></div><p id="pcEditorError" class="feature-error" role="alert" hidden></p><div class="dialog-actions"><button type="button" class="btn ghost" id="pcCancel">取消</button><button type="submit" class="btn">保存项目</button></div></form>`);
+      const guard=dialogGuard(),form=$('#pcEditor');
+      const read=()=>{d.name=$('#pcName').value;d.cwd=$('#pcCwd').value;d.hostId=$('#pcHost').value;d.description=$('#pcDescription').value;d.agentIds=[...form.querySelectorAll('[data-pc-member]:checked')].map(input=>input.dataset.pcMember);d.defaultAgent=$('#pcDefaultAgent').value;};
+      form.querySelector('#pcHost').onchange=()=>{read();d.cwd='';d.defaultAgent='';d.agentIds=[];editor(project,d);};
+      form.querySelectorAll('[data-pc-member]').forEach(input=>input.onchange=()=>{read();if(d.defaultAgent&&d.agentIds.length&&!d.agentIds.includes(d.defaultAgent))d.defaultAgent='';editor(project,d);});
+      form.querySelector('#pcBrowse').onclick=()=>{read();showWorkspacePicker({hostId:d.hostId,path:d.cwd,onPick:cwd=>{if(active()){d.cwd=cwd;if(!d.name)d.name=baseName(cwd);editor(project,d);}}});};
+      form.querySelector('#pcCancel').onclick=closeDlg;
+      form.onsubmit=event=>{event.preventDefault();read();withPendingButton(event.submitter,async()=>{try{const body=project?{name:d.name,description:d.description,agentIds:d.agentIds,defaultAgent:d.defaultAgent}:d;const saved=await api('/api/projects'+(project?'/'+encodeURIComponent(project.id):''),{method:project?'PATCH':'POST',body});if(!active()||!guard())return;closeDlg();state.selected=saved.id;state.agent='';state.editorDraft=null;await load();}catch(error){if(guard()){const box=$('#pcEditorError');box.hidden=false;box.textContent=error.message;}}},'保存中…');};
+      enhanceDialogSelects(form);
+    }
+    try{await load();}catch(error){if(active()){draw();report(error);}}
+  }
+  window.AgentHubProjectCenter={open,refreshLabels,labelFor:session=>labels.get(key(session.cwd,session.remoteHostId))||''};
+  document.getElementById('btnProjectCenter')?.addEventListener('click',()=>open());
+  refreshLabels();
+})();

@@ -1,4 +1,4 @@
-// Exercise every MCP tool against an isolated AgentHub instance.
+// Exercise every MCP tool against an isolated OrbitCell instance.
 const assert = require('assert');
 const { spawn, execFileSync } = require('child_process');
 const fs = require('fs');
@@ -72,7 +72,7 @@ async function call(name, args = {}) {
       try { healthy = (await fetch(BASE + '/api/health')).ok; if (healthy) break; } catch {}
       await sleep(250);
     }
-    assert(healthy, 'AgentHub did not start');
+    assert(healthy, 'OrbitCell did not start');
     mcp = startMcp();
     const init = await mcp.send('initialize', { protocolVersion: '2024-11-05' });
     assert.equal(init.result.serverInfo.name, 'agenthub');
@@ -90,7 +90,7 @@ async function call(name, args = {}) {
     assert((await call('usage_today')).totals);
     assert(Array.isArray(await call('scheduled_tasks')));
     // 提议定时任务：只能建「停用」草稿，避免 agent 产生无人确认的自动化
-    // 提议任务要绑到一个真实会话（MCP 的 SESSION_ID 在真实会话里就是 AgentHub 会话 id）
+    // 提议任务要绑到一个真实会话（MCP 的 SESSION_ID 在真实会话里就是 OrbitCell 会话 id）
     const probeSession = await (await fetch(BASE + '/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ agent: 'builtin', permMode: 'auto' }) })).json();
     const created = await call('scheduled_propose', { prompt: '每天检查构建', cron: '0 9 * * 1-5', title: '构建检查', sessionId: probeSession.id });
     assert.equal(created.created.enabled, false, 'agent 提议的任务必须默认停用');
@@ -103,8 +103,8 @@ async function call(name, args = {}) {
     await mcp.send('initialize', { protocolVersion: '2024-11-05' });
 
     const opened = await call('browser_open', { url: BASE + '/' });
-    assert.match(opened.page.title, /AgentHub/);
-    assert.match((await call('browser_snapshot', { maxChars: 500 })).page.title, /AgentHub/);
+    assert.match(opened.page.title, /OrbitCell/);
+    assert.match((await call('browser_snapshot', { maxChars: 500 })).page.title, /OrbitCell/);
     assert.equal((await call('browser_click', { selector: '#btnTheme' })).ok, true);
     assert.equal((await call('browser_type', { selector: '#searchBox', text: 'mcp-all-probe' })).ok, true);
     assert.equal((await call('browser_evaluate', { expression: "document.querySelector('#searchBox').value" })).value, 'mcp-all-probe');

@@ -1,6 +1,6 @@
 # Testing
 
-AgentHub’s test suite is a set of Node.js scripts rather than a single test runner. `npm test` runs all 96 registered scripts in sequence.
+OrbitCell’s test suite is a set of Node.js scripts rather than a single test runner. `npm test` runs all 96 registered scripts in sequence.
 
 `node test/agent-center.js` checks target-specific defaults, runtime command selection, input validation, late diagnostic results, read-only access, custom Agent creation and real isolated HTTP session creation. It does not require external SSH or model accounts.
 

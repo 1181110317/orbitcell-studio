@@ -38,6 +38,9 @@ const run = async bin => ({
   await check('helpDeclaresAcp：只认独立的 acp 词，不误判 acpx / 无关文本', () => {
     assert(acp.helpDeclaresAcp('Usage: foo [acp]'));
     assert(acp.helpDeclaresAcp('COMMANDS:\n  acp   run agent'));
+    assert(acp.helpDeclaresAcp('Options:\n  --acp    Start ACP server'));
+    assert(!acp.helpDeclaresAcp('--acp-helper starts a helper'));
+    assert(!acp.helpDeclaresAcp('This tool does not support the ACP protocol'));
     assert(!acp.helpDeclaresAcp('acpx is a wrapper'));
     assert(!acp.helpDeclaresAcp('no such command'));
     assert(!acp.helpDeclaresAcp(''));
@@ -88,7 +91,8 @@ const run = async bin => ({
     assert.equal(qwen.probed, true);
     assert.equal(qwen.bin, 'qwen acp');
     assert.equal(qwen.args, 'acp');
-    assert(qwen.version, '应带一句人类可读的来源说明');
+    assert(qwen.discoveryNote, '来源说明应独立保存');
+    assert.equal(qwen.version,'','帮助文本不能充当版本号');
   });
 
   await check('detectAcpAgents：没有 runner 时不做探测（只回预置）', async () => {
@@ -118,6 +122,40 @@ const run = async bin => ({
       assert(/^[A-Za-z0-9._-]+$/.test(p.key), 'key 含非法字符：' + p.key);
     }
     for (const c of acp.ACP_PROBE_BINS) assert(/^[A-Za-z0-9._-]+$/.test(c.bin), '探测候选 bin 非法：' + c.bin);
+  });
+  await check('Qoder 两个命令别名均使用 --acp，并去重发现结果', async () => {
+    for (const bin of ['qoder', 'qodercli']) assert.deepEqual(acp.resolveAcpAgent('acp:b:' + bin).cmd, [bin, '--acp']);
+    const list = await acp.detectAcpAgents([], { exists: async bin => ['qoder', 'qodercli'].includes(bin), run: async () => ({ output: 'Options: --acp  Start agent client protocol' }) });
+    const qoder = list.filter(item => /qoder/i.test(item.id));
+    assert.equal(qoder.length, 1); assert.equal(qoder[0].id, 'acp:b:qoder');
+    assert.equal(qoder[0].args, '--acp');
+    const legacy = await acp.detectAcpAgents([], { exists: async bin => bin === 'qodercli', run: async () => ({ output: 'Options: --acp' }) });
+    assert.equal(legacy.find(item => item.id === 'acp:b:qodercli').args, '--acp');
+  });
+  await check('Qoder CN 仅在 CLI 宣告 ACP 时发现，并保留实际参数', async () => {
+    const available = ['qoder', 'qoderclicn', 'qodercn'];
+    const list = await acp.detectAcpAgents([], {
+      exists: async bin => available.includes(bin),
+      run: async bin => ({ output: bin === 'qoder' ? 'Options: --acp' : 'Options: --experimental-acp' }),
+    });
+    const cn = list.filter(item => item.name.startsWith('Qoder CN'));
+    assert.equal(cn.length, 1);
+    assert.equal(cn[0].id, 'acp:e:qoderclicn');
+    assert.deepEqual(acp.resolveAcpAgent(cn[0].id).cmd, ['qoderclicn', '--experimental-acp']);
+    assert(list.some(item => item.id === 'acp:b:qoder'), 'Qoder and Qoder CN can coexist');
+    const noCli = await acp.detectAcpAgents([], {
+      exists: async bin => bin === 'qodercn',
+      run: async () => ({ code: 127, output: 'QoderCN CLI is not installed' }),
+    });
+    assert(!noCli.some(item => item.name.startsWith('Qoder CN')));
+  });
+  await check('通用 --acp 探测保留参数形态，重启不变回子命令', async () => {
+    const list = await acp.detectAcpAgents([], { exists: async bin => bin === 'qwen', run: async () => ({ output: 'Options: --acp' }) });
+    const found = list.find(item => item.id === 'acp:f:qwen');
+    assert(found); assert.deepEqual(acp.resolveAcpAgent(found.id).cmd, ['qwen', '--acp']);
+    assert.equal(acp.resolveAcpAgent('acp:f:../bad'), null);
+    const experimental = await acp.detectAcpAgents([], { exists: async bin => bin === 'qwen', run: async () => ({ output: 'Options: --experimental-acp' }) });
+    assert.deepEqual(acp.resolveAcpAgent(experimental.find(item => item.id === 'acp:e:qwen').id).cmd, ['qwen', '--experimental-acp']);
   });
 
   const failed = checks.filter(c => c.startsWith('FAIL')).length;

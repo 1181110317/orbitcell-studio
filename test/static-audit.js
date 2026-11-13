@@ -92,6 +92,8 @@ const dynamicIds = new Set();
 for (const m of js.matchAll(/id="([A-Za-z][A-Za-z0-9_-]*)"/g)) dynamicIds.add(m[1]);
 for (const m of js.matchAll(/id='([A-Za-z][A-Za-z0-9_-]*)'/g)) dynamicIds.add(m[1]);
 for (const m of js.matchAll(/\.id\s*=\s*['"]([A-Za-z][A-Za-z0-9_-]*)['"]/g)) dynamicIds.add(m[1]);
+// Settings panes are created from each declared section id with a -panel suffix.
+for (const m of js.matchAll(/data-settings-section="([A-Za-z][A-Za-z0-9_-]*)"/g)) dynamicIds.add(m[1]+'-panel');
 // providerSelectMarkup('npAgent', …) 这类「把 id 当参数传进去」的写法
 for (const m of js.matchAll(/(?:Markup|Select|Panel|Menu|Card|Row)\(\s*['"]([A-Za-z][A-Za-z0-9_-]*)['"]/g)) dynamicIds.add(m[1]);
 

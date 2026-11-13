@@ -10,7 +10,7 @@ process.env.AGENTHUB_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'ah-claude
 const bridge = require('../lib/claude-bridge');
 
 // 这个夹具模拟 Claude CLI：带 --resume 时返回截图中的失效会话错误，
-// 不带 --resume 时检查 AgentHub 是否真的把 replayPrompt 发给了新会话。
+// 不带 --resume 时检查 OrbitCell 是否真的把 replayPrompt 发给了新会话。
 const fakeCli = `
 const hasResume = process.argv.includes('--resume');
 let buf = '';

@@ -235,6 +235,8 @@ async function drive(opts = {}) {
     autoPerms: opts.autoPerms === undefined ? true : opts.autoPerms,
     permissionGrants: opts.permissionGrants,
     systemPrompt: opts.systemPrompt,
+    webAccess: opts.webAccess,
+    research: opts.research,
     effort: opts.effort,
     provider: {
       agent: protocol === 'anthropic' ? 'claude' : 'codex',
@@ -576,15 +578,17 @@ async function sectionLoop() {
     assert.match(ant.rejected.message, /boom-anthropic/);
   });
 
-  await check('chatOnly (runApiChat) never advertises or executes tools', async () => {
+  await check('ordinary chat advertises only read-only web tools and rejects file calls', async () => {
     const ok = await drive({ protocol: 'openai', chatOnly: true, cwd: WORK, script: [{ text: 'plain answer' }] });
     assert.strictEqual(ok.code, 0);
-    assert.strictEqual(ok.requests[0].payload.tools, undefined, 'no tools in chat mode');
+    assert.deepStrictEqual(ok.requests[0].payload.tools.map(t=>t.function.name).sort(),['web_fetch','web_search']);
+    const offline=await drive({chatOnly:true,webAccess:false,cwd:WORK,script:[{text:'offline answer'}]});
+    assert.strictEqual(offline.requests[0].payload.tools,undefined,'internal offline requests advertise no tools');
     const sneaky = await drive({ protocol: 'openai', chatOnly: true, cwd: WORK, script: [{ tools: [{ id: 'call_x', name: 'write_file', args: { path: 'chat-only-must-not-exist.txt', content: 'x' } }] }] });
     assert.strictEqual(sneaky.code, 1, 'tool call in chat mode must fail the turn');
     assert.strictEqual(sneaky.events.filter(e => e.kind === 'tooloutput').length, 0, 'tool must not be executed');
     assert.strictEqual(fs.existsSync(path.join(WORK, 'chat-only-must-not-exist.txt')), false);
-    assert.ok(sneaky.events.some(e => e.kind === 'error' && /普通聊天模式不执行工具调用/.test(e.text)));
+    assert.ok(sneaky.events.some(e => e.kind === 'error' && /普通聊天仅支持公开网页/.test(e.text)));
   });
 
   await check('cancellation mid-loop stops the turn, kills the tool child process, and starts no further round', async () => {
@@ -904,6 +908,26 @@ async function sectionFiles() {
     assert.strictEqual(fs.readFileSync(target, 'utf8'), 'G');
   });
 
+  await check('permissionGrants resolver observes a preference change before the next tool', async () => {
+    let grants = ['write_file'];
+    const sessionKey = 'dynamic-grant-' + RUN;
+    const options = {
+      cwd: FS_WORK, autoPerms: false, permMode: 'ask', sessionKey,
+      permissionGrants: () => grants,
+      onEvent: ev => {
+        if (ev.kind === 'permission') setTimeout(() => apiAgent.respondPermission(sessionKey, ev.pid, 'deny'), 10);
+      },
+    };
+    const allowed = await callTool('write_file', { path: 'dynamic-granted.txt', content: 'G' }, options);
+    assert.strictEqual(allowed.status, 'done');
+    assert.ok(!allowed.events.some(ev => ev.kind === 'permission'));
+    grants = [];
+    const denied = await callTool('write_file', { path: 'dynamic-denied.txt', content: 'NO' }, options);
+    assert.strictEqual(denied.status, 'error');
+    assert.ok(denied.events.some(ev => ev.kind === 'permission'));
+    assert.strictEqual(fs.existsSync(path.join(FS_WORK, 'dynamic-denied.txt')), false);
+  });
+
   await check('permission policy helpers behave (KNOWN_MODES / normalize / decide)', async () => {
     assert.deepStrictEqual([...apiAgent.KNOWN_MODES], ['auto', 'edits', 'plan', 'ask']);
     assert.strictEqual(apiAgent.normalizeToolPermissionMode(true, ''), 'auto');
@@ -1172,10 +1196,107 @@ async function sectionWeb() {
         assert.ok(!/b\{\}/.test(run.output), 'style content stripped');
         assert.strictEqual(stub.requests.length, 2);
         assert.strictEqual(stub.requests[0].headers.Host, 'first.test');
-        assert.match(String(stub.requests[0].headers['User-Agent']), /AgentHub/);
+        assert.match(String(stub.requests[0].headers['User-Agent']), /OrbitCell/);
         assert.strictEqual(stub.requests[1].path, '/final?q=1');
       });
     } finally { stub.restore(); }
+  });
+  await check('cancelling a web read also interrupts a pending DNS lookup', async () => {
+    const dns=require('dns').promises,original=dns.lookup;dns.lookup=()=>new Promise(()=>{});
+    const controller=new AbortController(),timer=setTimeout(()=>controller.abort(new Error('fixture DNS cancelled')),30);
+    try { await assert.rejects(apiAgent.fetchWebSafe('https://unresolved-fixture.test/',controller.signal),/fixture DNS cancelled/); }
+    finally {clearTimeout(timer);dns.lookup=original;}
+  });
+  await check('ordinary chat executes a real web tool loop in both protocols without file tools', async () => {
+    const stub=stubHttpRequest(()=>({status:200,headers:{'content-type':'text/html'},chunks:['<h1>Fixture source</h1><p>Verified web content.</p>']}));
+    try {
+      await withStubDns({'chat-source.test':[{address:'93.184.216.34',family:4}]},async()=>{
+        for(const protocol of ['openai','anthropic']){
+          const run=await drive({protocol,chatOnly:true,permMode:'plan',cwd:WORK,script:[{tools:[{id:'web-chat',name:'web_fetch',args:{url:'http://chat-source.test/'}}]},{text:'Answer from the verified source'}]});
+          assert.equal(run.code,0);assert.equal(run.requests.length,2);
+          assert(run.events.some(e=>e.kind==='tooloutput'&&e.status==='done'&&/Verified web content/.test(e.output)));
+          assert(!run.events.some(e=>e.kind==='permission'),'public web reads do not hang in a hidden permission prompt');
+          assert.equal(run.events.filter(e=>e.kind==='request-usage').length,2,'network tool loop preserves per-request accounting');
+        }
+      });
+    }finally{stub.restore();}
+  });
+
+  await check('ordinary chat reserves a final answer after twelve web rounds in both protocols', async () => {
+    const stub=stubHttpRequest(options=>({status:200,headers:{'content-type':'text/html'},chunks:['<h1>Verified source '+options.path+'</h1><p>Bounded research content.</p>']}));
+    try {
+      await withStubDns({'chat-source.test':[{address:'93.184.216.34',family:4}]},async()=>{
+        for(const protocol of ['openai','anthropic']){
+          const run=await drive({protocol,chatOnly:true,cwd:WORK,systemPrompt:'Fixture assistant instructions',script:ctx=>ctx.index<12
+            ? {tools:[{id:'web-'+ctx.index,name:'web_fetch',args:{url:'http://chat-source.test/'+ctx.index}}],usage:{in:10,out:3}}
+            : {text:'Answer based on the collected sources; remaining gaps are unverified.',usage:{in:20,out:7}}});
+          assert.equal(run.code,0);assert.equal(run.rejected,null);assert.equal(run.requests.length,13,'twelve tool rounds plus one final answer');
+          assert.equal(run.events.filter(e=>e.kind==='tooloutput').length,12);
+          assert(!run.events.some(e=>e.kind==='error'),'a normal research budget is not a failed conversation');
+          const last=run.requests.at(-1).payload;
+          assert.equal(last.tools,undefined,'final summary advertises no tools');assert.equal(last.tool_choice,undefined,'no unsupported tool_choice is sent without tools');
+          const finalSystem=protocol==='anthropic'?last.system:last.messages[0].content;
+          assert(finalSystem.includes('不要再调用工具')&&finalSystem.includes('无法确认')&&finalSystem.includes('Fixture assistant instructions'));
+          assert(JSON.stringify(last.messages).includes('Bounded research content'),'collected source text remains available');assert(!JSON.stringify(last.messages).includes('tool_result')&&!last.messages.some(m=>m.role==='tool'||m.tool_calls),'final summary is a plain transcript for compatibility providers');
+          assert(run.events.some(e=>e.kind==='text'&&e.text.includes('remaining gaps are unverified')));
+          const usage=run.events.find(e=>e.kind==='usage').usage;
+          assert.deepEqual([usage.requests,usage.input,usage.output],[13,140,43],'the final request is billed once with the previous tool rounds');
+          assert.equal(run.events.filter(e=>e.kind==='request-usage').length,13);
+        }
+      });
+    }finally{stub.restore();}
+  });
+
+  await check('ordinary chat does not execute tools when a provider ignores the final-answer choice', async () => {
+    const stub=stubHttpRequest(options=>({status:200,headers:{'content-type':'text/plain'},chunks:['Source content '+options.path]}));
+    try {
+      await withStubDns({'chat-source.test':[{address:'93.184.216.34',family:4}]},async()=>{
+        for(const protocol of ['openai','anthropic']){
+          const run=await drive({protocol,chatOnly:true,cwd:WORK,script:ctx=>({tools:[{id:ctx.index<12?'web-'+ctx.index:'forbidden-final-tool',name:'web_fetch',args:{url:'http://chat-source.test/'+ctx.index}}]})});
+          assert.equal(run.code,0);assert.equal(run.requests.length,13,'a noncompliant provider cannot create an infinite loop');
+          assert.equal(run.events.filter(e=>e.kind==='tooloutput').length,12,'no thirteenth web call is executed');
+          assert(!run.events.some(e=>e.kind==='tool'&&e.id==='forbidden-final-tool'),'no phantom running tool is left in the UI');
+          assert(run.events.some(e=>e.kind==='text'&&/模型没有生成完整总结/.test(e.text)&&e.text.includes('chat-source.test')),'a noncompliant provider preserves sources with an explicit partial result');
+          assert(!run.events.some(e=>e.kind==='error'&&/工具轮次达到上限/.test(e.text)));
+        }
+      });
+    }finally{stub.restore();}
+  });
+
+  await check('chat stops repeated URLs, reuses results, and returns an answer in both protocols', async () => {
+    const stub=stubHttpRequest(()=>({status:200,headers:{},chunks:['Verified content']}));
+    try { await withStubDns({'chat-source.test':[{address:'93.184.216.34',family:4}]},async()=>{
+      for(const protocol of ['openai','anthropic']) {
+        const before=stub.requests.length;
+        const run=await drive({protocol,chatOnly:true,script:ctx=>!ctx.payload.tools ? {text:'Answer from the existing source'} : {tools:[{id:'repeat-'+ctx.index,name:'web_fetch',args:{url:'http://chat-source.test/#'+ctx.index}}]}});
+        assert.equal(run.code,0);assert.equal(run.requests.length,4);assert.equal(stub.requests.length-before,1,'fragment variants never refetch the same page');
+        assert.equal(run.events.filter(e=>e.kind==='tooloutput'&&/复用已有结果/.test(e.output)).length,2);
+      }
+    }); }finally{stub.restore();}
+  });
+  await check('chat ends after two failed reads and preserves failure semantics for the model', async () => {
+    for(const protocol of ['openai','anthropic']) {
+      const run=await drive({protocol,chatOnly:true,script:ctx=>!ctx.payload.tools ? {text:'Web access failed; this cannot be verified.'} : {tools:[{id:'failed-'+ctx.index,name:'web_fetch',args:{url:'http://127.0.0.1/'+ctx.index}}]}});
+      assert.equal(run.code,0);assert.equal(run.requests.length,3);assert.equal(run.events.filter(e=>e.kind==='tooloutput'&&e.status==='error').length,2);
+      const payload=run.requests.at(-1).payload;
+      if(protocol==='anthropic')assert.match(payload.messages.at(-1).content[0].text,/读取失败/);
+      else assert.match(payload.messages.at(-1).content,/工具失败/);
+    }
+  });
+  await check('chat custom budget counts calls within batches and disabled web cannot execute', async () => {
+    const stub=stubHttpRequest(options=>({status:200,headers:{},chunks:['Source '+options.path]}));
+    try { await withStubDns({'chat-source.test':[{address:'93.184.216.34',family:4}]},async()=>{
+      const run=await drive({chatOnly:true,research:{webMaxCalls:2},script:ctx=>ctx.index?{text:'Collected answer'}:{tools:[0,1,2,3].map(i=>({id:'batch-'+i,name:'web_fetch',args:{url:'http://chat-source.test/'+i}}))}});
+      assert.equal(run.code,0);assert.equal(stub.requests.length,2);assert.equal(run.requests.at(-1).payload.tools,undefined);
+      const off=await drive({chatOnly:true,research:{webMode:'off'},script:[{tools:[{id:'off',name:'web_fetch',args:{url:'http://chat-source.test/'}}]}]});
+      assert.equal(off.code,1);assert.deepEqual(off.requests[0].payload.tools,undefined);assert.equal(stub.requests.length,2);
+    }); }finally{stub.restore();}
+  });
+  await check('search parsers preserve snippets and reject unrelated RSS feeds and unsafe result URLs', async () => {
+    const {parseDuck,parseBing}=require('../lib/web-research');
+    const results=parseDuck('<a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fnodejs.org%2Fen" class="result__a">Node &amp; releases</a><a class="result__snippet">Official <b>release</b> schedule</a><a class="result__a" href="javascript:bad">Bad</a>');
+    assert.equal(results.length,1);assert.equal(results[0].title,'Node & releases');assert.equal(results[0].snippet,'Official release schedule');
+    assert.equal(parseBing('<item><title>Office</title><link>https://example.org</link><description>spreadsheets</description></item>','Node.js release schedule').length,0);
   });
 
   await check('web_fetch honours max_chars (clamped to 200..30000)', async () => {
@@ -1238,7 +1359,8 @@ async function sectionWeb() {
   await check('web_search parses Bing RSS results (stubbed fetch, no internet)', async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async (url, init) => {
-      if (!/bing\.com/.test(String(url))) return originalFetch(url, init); // the fake model provider still needs a real fetch
+      if (/duckduckgo\.com/.test(String(url))) return new Response('unavailable',{status:503});
+      if (!/bing\.com/.test(String(url))) return originalFetch(url, init); // fake provider remains local
       assert.match(String(url), /^https:\/\/www\.bing\.com\/search\?format=rss/);
       return new Response('<?xml version="1.0"?><rss><channel>'
         + '<item><title><![CDATA[Bing One]]></title><link>https://one.example/a</link><description><![CDATA[<b>bold</b> snippet]]></description></item>'
@@ -1253,7 +1375,7 @@ async function sectionWeb() {
     } finally { globalThis.fetch = originalFetch; }
   });
 
-  await check('web_search falls back to DuckDuckGo HTML and decodes uddg redirects', async () => {
+  await check('web_search prefers DuckDuckGo HTML and decodes uddg redirects', async () => {
     const originalFetch = globalThis.fetch;
     let searchCalls = 0;
     globalThis.fetch = async (url, init) => {
@@ -1265,7 +1387,7 @@ async function sectionWeb() {
     };
     try {
       const run = await callTool('web_search', { query: 'x' }, { cwd: FS_WORK });
-      assert.strictEqual(searchCalls, 2, 'bing first, then duckduckgo');
+      assert.strictEqual(searchCalls, 1, 'usable primary results avoid an unnecessary fallback');
       assert.match(run.output, /1\. DDG Result/);
       assert.match(run.output, /https:\/\/ddg\.example\/page/);
     } finally { globalThis.fetch = originalFetch; }
@@ -1532,7 +1654,7 @@ function decodeCall(response) {
 }
 
 async function sectionMcp() {
-  console.log('\n[5] MCP tool surface (stdio JSON-RPC against a fake AgentHub API)');
+  console.log('\n[5] MCP tool surface (stdio JSON-RPC against a fake OrbitCell API)');
   const port = await freePort();
   const hub = startFakeHub(port);
   await hub.listen();
@@ -1661,7 +1783,7 @@ async function sectionMcp() {
     assert.strictEqual(response.error.code, -32602, 'code: ' + JSON.stringify(response.error));
     assert.match(response.error.message, /未知工具/);
     assert.strictEqual(response.result, undefined, 'no result payload for an unknown tool');
-    assert.strictEqual(hub.hits.length, before, 'an unknown tool must not reach the AgentHub API');
+    assert.strictEqual(hub.hits.length, before, 'an unknown tool must not reach the OrbitCell API');
   });
 
   await check('every API-backed tool reports isError:true when the upstream API fails', async () => {
@@ -1776,7 +1898,7 @@ async function sectionServer() {
       try { healthy = (await fetch(base + '/api/health', { signal: AbortSignal.timeout(2000) })).ok; } catch { /* retry */ }
       if (!healthy) await sleep(150);
     }
-    assert.ok(healthy, 'isolated AgentHub instance failed to start: ' + serverLog.slice(-400));
+    assert.ok(healthy, 'isolated OrbitCell instance failed to start: ' + serverLog.slice(-400));
     const provider = await api('/api/providers', 'POST', { agent: 'builtin', name: 'local fake', baseUrl: fake.baseUrl, apiKey: 'fake-key', protocol: 'openai', model: 'fake-model' });
     const session = await api('/api/sessions', 'POST', { agent: 'builtin', providerId: provider.id });
     sessionId = session.id;
@@ -1789,7 +1911,7 @@ async function sectionServer() {
     return () => steps[Math.min(round++, steps.length - 1)];
   };
 
-  await check('an isolated AgentHub instance starts on a 21100-21199 port with a temp data dir', async () => {
+  await check('an isolated OrbitCell instance starts on a 21100-21199 port with a temp data dir', async () => {
     await ready;
     const health = await api('/api/health');
     assert.ok(health.ok !== false, 'health payload: ' + JSON.stringify(health));

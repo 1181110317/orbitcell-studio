@@ -31,6 +31,7 @@ const fake = http.createServer((req, res) => {
     ]);
     assert.equal(balance.canCheck({ agent: 'codex', baseUrl: '', apiKey: '', raw: { auth: { tokens: { access_token: 'x' } } } }), true);
     console.log('balance-codex: ok');
+    await require('./helpers/provider-quota.cjs')();
   } finally {
     delete process.env.AGENTHUB_CODEX_USAGE_URL;
     await new Promise(resolve => fake.close(resolve));

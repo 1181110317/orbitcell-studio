@@ -8,6 +8,7 @@ process.env.AGENTHUB_DATA_DIR = path.join(root, 'data');
 process.env.CODEX_HOME = path.join(root, 'codex-home');
 process.env.CLAUDE_CONFIG_DIR = path.join(root, 'claude-home');
 const imports = require('../lib/import-sessions');
+(async()=>{
 try {
   const file = path.join(root, 'rollout-date-actual-id.jsonl');
   const lines = [
@@ -44,4 +45,6 @@ try {
   assert.equal(fork[1].payload.content[0].text, lines[1].payload.content[0].text);
   assert.equal(fs.readFileSync(source, 'utf8'), raw);
   console.log('PASS native fork uses isolated data and preserves literal message text');
+  await require('./helpers/agent-import-controls.cjs')({root});
 } finally { fs.rmSync(root, { recursive: true, force: true }); }
+})().catch(error=>{console.error(error);process.exitCode=1;});

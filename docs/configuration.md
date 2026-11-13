@@ -1,6 +1,6 @@
 # Configuration
 
-AgentHub is configured through environment variables at startup and through the web UI for per-installation settings.
+OrbitCell is configured through environment variables at startup and through the web UI for per-installation settings.
 
 ## Environment variables
 
@@ -8,26 +8,26 @@ AgentHub is configured through environment variables at startup and through the 
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `AGENTHUB_PORT` | `7261` | HTTP and WebSocket port |
-| `AGENTHUB_HOST` | `127.0.0.1` | Bind address. Non-loopback values require `AGENTHUB_TOKEN`, `AGENTHUB_RO_TOKEN` or enabled WebUI accounts |
-| `AGENTHUB_TOKEN` | — | Shared access token. Accepted as `?token=`, `x-agenthub-token` header or stored by the browser |
-| `AGENTHUB_RO_TOKEN` | — | Read-only token; GET/HEAD and live viewing only, writes return 403 |
-| `AGENTHUB_ALLOWED_HOSTS` | — | Comma- or semicolon-separated Host header allowlist for domain/reverse-proxy access |
-| `AGENTHUB_PUBLIC_URL` | request origin | Public base URL used for MCP OAuth callback URLs |
+| `ORBITCELL_PORT` | `7261` | HTTP and WebSocket port |
+| `ORBITCELL_HOST` | `127.0.0.1` | Bind address. Non-loopback values require `ORBITCELL_TOKEN`, `ORBITCELL_RO_TOKEN` or enabled WebUI accounts |
+| `ORBITCELL_TOKEN` | — | Shared access token. Accepted as `?token=`, `x-agenthub-token` header or stored by the browser |
+| `ORBITCELL_RO_TOKEN` | — | Read-only token; GET/HEAD and live viewing only, writes return 403 |
+| `ORBITCELL_ALLOWED_HOSTS` | — | Comma- or semicolon-separated Host header allowlist for domain/reverse-proxy access |
+| `ORBITCELL_PUBLIC_URL` | request origin | Public base URL used for MCP OAuth callback URLs |
 
 ### Data and runtime
 
 | Variable | Default | Description |
 | --- | --- | --- |
-| `AGENTHUB_DATA_DIR` | `<repo>/data` | Runtime data directory (sessions, usage, credentials, logs) |
-| `AGENTHUB_WORKSPACE` | `~/AgentHub` | Default working directory for sessions without a project path |
-| `AGENTHUB_DB` | on | Set to `0` to disable the SQLite mirror and use JSON-only paths |
-| `AGENTHUB_DB_FILE` | `<data>/agenthub.db` | Override the SQLite index path |
-| `AGENTHUB_BROWSER` | auto-detect | Chrome or Edge executable used by the docked browser |
-| `AGENTHUB_MAX_ACTIVE_SESSIONS` | `500` | Cap before inactive sessions become eligible for archival |
-| `AGENTHUB_TERMINAL_IDLE_MS` | `1800000` | Idle terminal retention in milliseconds (30 minutes) |
-| `AGENTHUB_MAGPIE_URL` | `http://127.0.0.1:3425/v1` | Magpie gateway endpoint |
-| `AGENTHUB_NO_PAUSE` | — | `1` stops `start-server.cmd` from pausing on exit |
+| `ORBITCELL_DATA_DIR` | `<repo>/data` | Runtime data directory (sessions, usage, credentials, logs) |
+| `ORBITCELL_WORKSPACE` | `~/OrbitCell` | Default working directory for sessions without a project path |
+| `ORBITCELL_DB` | on | Set to `0` to disable the SQLite mirror and use JSON-only paths |
+| `ORBITCELL_DB_FILE` | `<data>/agenthub.db` | Override the SQLite index path |
+| `ORBITCELL_BROWSER` | auto-detect | Chrome or Edge executable used by the docked browser |
+| `ORBITCELL_MAX_ACTIVE_SESSIONS` | `500` | Cap before inactive sessions become eligible for archival |
+| `ORBITCELL_TERMINAL_IDLE_MS` | `1800000` | Idle terminal retention in milliseconds (30 minutes) |
+| `ORBITCELL_MAGPIE_URL` | `http://127.0.0.1:3425/v1` | Magpie gateway endpoint |
+| `ORBITCELL_NO_PAUSE` | — | `1` stops `start-server.cmd` from pausing on exit |
 
 ### Agent and diagnostic overrides
 
@@ -35,33 +35,33 @@ These are intended for development, testing or unusual installations:
 
 | Variable | Description |
 | --- | --- |
-| `AGENTHUB_CCSWITCH_DIR` | Override the cc-switch data directory used for the one-time import |
-| `AGENTHUB_ZCODE_DIR` | Override the ZCode home used for usage scanning |
-| `AGENTHUB_CODEX_USAGE_URL` | Override the Codex usage endpoint used by the balance provider |
-| `AGENTHUB_IMPORT_DIRS` | Extra directories to scan for imported sessions (semicolon/comma separated) |
-| `AGENTHUB_ROUTE_LOG` | Write a diagnostic log of `/api` routes to this file |
-| `AGENTHUB_MCP_DISABLED` | Comma-separated injected MCP tool names to hide and disable |
+| `ORBITCELL_CCSWITCH_DIR` | Override the cc-switch data directory used for the one-time import |
+| `ORBITCELL_ZCODE_DIR` | Override the ZCode home used for usage scanning |
+| `ORBITCELL_CODEX_USAGE_URL` | Override the Codex usage endpoint used by the balance provider |
+| `ORBITCELL_IMPORT_DIRS` | Extra directories to scan for imported sessions (semicolon/comma separated) |
+| `ORBITCELL_ROUTE_LOG` | Write a diagnostic log of `/api` routes to this file |
+| `ORBITCELL_MCP_DISABLED` | Comma-separated injected MCP tool names to hide and disable |
 
 PowerShell example:
 
 ```powershell
-$env:AGENTHUB_DATA_DIR = 'D:\AgentHubData'
-$env:AGENTHUB_PORT = '7261'
-$env:AGENTHUB_TOKEN = 'change-me'
+$env:ORBITCELL_DATA_DIR = 'D:\AgentHubData'
+$env:ORBITCELL_PORT = '7261'
+$env:ORBITCELL_TOKEN = 'change-me'
 npm start
 ```
 
 Bash example:
 
 ```bash
-AGENTHUB_DATA_DIR=/srv/agenthub/data \
-AGENTHUB_TOKEN='change-me' \
+ORBITCELL_DATA_DIR=/srv/orbitcell-studio/data \
+ORBITCELL_TOKEN='change-me' \
 npm start
 ```
 
 ## Agent CLI setup
 
-AgentHub detects binaries on `PATH`. If a CLI is installed elsewhere, set its path in **Settings → Agents**.
+OrbitCell detects binaries on `PATH`. If a CLI is installed elsewhere, set its path in **Settings → Agents**.
 
 | Agent | Typical command | Notes |
 | --- | --- | --- |
@@ -128,11 +128,11 @@ The key files live beside the data directory and use owner-only permissions wher
 ## Access control
 
 - **Loopback only (default)** — safest for a single desktop.
-- **Shared token** — set `AGENTHUB_TOKEN` before binding to `0.0.0.0`. The browser stores the token after the first `?token=` visit. Use a long random value.
-- **Read-only token** — set `AGENTHUB_RO_TOKEN` for phones or observers. Read-only clients can view sessions and live output but cannot write.
+- **Shared token** — set `ORBITCELL_TOKEN` before binding to `0.0.0.0`. The browser stores the token after the first `?token=` visit. Use a long random value.
+- **Read-only token** — set `ORBITCELL_RO_TOKEN` for phones or observers. Read-only clients can view sessions and live output but cannot write.
 - **WebUI accounts** — enable in **Settings → Access control** from the local machine. Passwords are scrypt-hashed; login cookies are httpOnly and SameSite=Lax; write requests require a matching CSRF header; login failures are rate-limited per IP. Changing the password rotates the signing key.
 
-When AgentHub is behind a reverse proxy, set `AGENTHUB_ALLOWED_HOSTS` to the public hostname and keep `AGENTHUB_HOST=127.0.0.1`. Use HTTPS at the proxy.
+When OrbitCell is behind a reverse proxy, set `ORBITCELL_ALLOWED_HOSTS` to the public hostname and keep `ORBITCELL_HOST=127.0.0.1`. Use HTTPS at the proxy.
 
 ## Desktop and browser settings
 

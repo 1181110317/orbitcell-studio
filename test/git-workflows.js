@@ -9,7 +9,7 @@ const git = require('../lib/git');
 const workflows = require('../lib/git-workflows');
 const run = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true }).trim();
 const work = path.join(tmp, 'work'), remote = path.join(tmp, 'remote.git'), peer = path.join(tmp, 'peer');
-const config = cwd => { run(cwd, ['config', 'user.name', 'AgentHub QA']); run(cwd, ['config', 'user.email', 'qa@example.test']); run(cwd, ['config', 'core.autocrlf', 'false']); };
+const config = cwd => { run(cwd, ['config', 'user.name', 'OrbitCell QA']); run(cwd, ['config', 'user.email', 'qa@example.test']); run(cwd, ['config', 'core.autocrlf', 'false']); };
 (async () => {
   try {
     fs.mkdirSync(work); run(tmp, ['init', '--bare', remote]); run(work, ['init', '-b', 'main']); config(work);

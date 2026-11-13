@@ -47,7 +47,7 @@ function wbSessionRow(s, archived = false) {
   const project = wbProjectLabel(s);
   const commands = Array.isArray(s.commands) ? s.commands : [];
   return `<article class="wb-row wb-${status}" data-session-id="${wbText(s.id)}">
-    <div class="wb-row-main"><span class="wb-state" aria-hidden="true"></span><div class="wb-row-copy">
+    <div class="wb-row-main"><span class="wb-agent-mark">${agentGlyph(s.agent,s.id)}<span class="wb-state" aria-hidden="true"></span></span><div class="wb-row-copy">
       <strong title="${wbText(s.title)}">${wbText(s.title || '新会话')}</strong>
       <small>${wbText(agentMeta(s.agent || '').name)} · ${wbText(project)} · ${wbText(archived ? '已归档' : wbStatusNames[status] || status)}${s.pending ? ` · ${s.pending} 项待处理` : ''}${archived ? ` · ${Number(s.msgCount) || 0} 条消息 · ${wbText(fmtBytes(s.sizeBytes || 0))}` : ''}</small>
     </div><span class="wb-row-time">${wbText(wbAge(s.updatedAt))}</span></div>
@@ -61,7 +61,7 @@ function wbSessionRow(s, archived = false) {
       const dels = files.reduce((n, f) => n + (Number(f.deletions) || 0), 0);
       return `<details class="wb-changes"><summary>第 ${index + 1} 个最近回合 · ${files.length} 个文件 <i>+${adds}</i> <em>−${dels}</em></summary><div class="wb-change-list"><small>根据本轮前后工作区快照计算；共享目录中的其他会话或手工修改也可能被计入。</small>${files.map(f => `<button type="button" data-wb-diff="${wbText(s.id)}" data-wb-ts="${Number(change.ts) || 0}" data-wb-path="${wbText(f.path)}"><span>${wbText(f.path)}</span><i>+${Number(f.additions) || 0}</i><em>−${Number(f.deletions) || 0}</em></button>`).join('')}${change.truncated ? '<small>文件过多，列表已截断。打开会话查看完整记录。</small>' : ''}</div></details>`;
     }).join('')}
-    <div class="wb-actions"><button type="button" data-wb-open="${wbText(s.id)}">${s.pending ? '处理请求' : '打开会话'}</button>${!archived && s.cwd ? `<button type="button" data-wb-files="${wbText(s.id)}">文件</button>` : ''}${!archived && !S.readOnly && s.cwd && !wbHostId(s) ? `<button type="button" data-wb-git="${wbText(s.id)}">Git</button><button type="button" data-wb-terminal="${wbText(s.id)}">项目终端</button>` : ''}${!archived && !S.readOnly && (s.status === 'running' || s.status === 'waiting') ? `<button type="button" class="danger" data-wb-stop="${wbText(s.id)}" ${s.cancelled ? 'disabled' : ''}>${s.cancelled ? '停止中…' : '停止本轮'}</button>` : ''}${archived && !S.readOnly ? `<button type="button" data-wb-restore="${wbText(s.id)}">恢复</button>` : ''}</div>
+    <div class="wb-actions"><button type="button" data-wb-open="${wbText(s.id)}">${window.AgentHubIcons.svg('chat')}${s.pending ? '处理请求' : '打开会话'}</button>${!archived && s.cwd ? `<button type="button" data-wb-files="${wbText(s.id)}">${window.AgentHubIcons.svg('folder')}文件</button>` : ''}${!archived && !S.readOnly && s.cwd ? `<button type="button" data-wb-git="${wbText(s.id)}">${window.AgentHubIcons.svg('branch')}Git</button><button type="button" data-wb-terminal="${wbText(s.id)}">${window.AgentHubIcons.svg('terminal')}项目终端</button>` : ''}${!archived && !S.readOnly && (s.status === 'running' || s.status === 'waiting') ? `<button type="button" class="danger" data-wb-stop="${wbText(s.id)}" ${s.cancelled ? 'disabled' : ''}>${s.cancelled ? '停止中…' : '停止本轮'}</button>` : ''}${archived && !S.readOnly ? `<button type="button" data-wb-restore="${wbText(s.id)}">恢复</button>` : ''}</div>
   </article>`;
 }
 
@@ -86,7 +86,7 @@ function wbCapabilityHtml() {
   const remoteStatus = !access.listening ? '当前仅本机可访问。手机访问需要在本机启用账户认证或配置令牌，再以 AGENTHUB_HOST=0.0.0.0 启动服务。'
     : access.canHandle ? '已监听局域网，当前身份可以在手机上查看进度、处理审批并停止任务。'
       : '已监听局域网，当前身份仅可查看；处理审批和停止任务需要有写权限的账户或令牌。';
-  return `<div class="wb-cap-note">能力依据已探测的 CLI 与 AgentHub 接入能力显示。“未确认”表示当前没有可靠的能力声明；远程运行最终以目标主机实际配置为准。</div>
+  return `<div class="wb-cap-note">能力依据已探测的 CLI 与 OrbitCell 接入能力显示。“未确认”表示当前没有可靠的能力声明；远程运行最终以目标主机实际配置为准。</div>
     <div class="wb-remote"><strong>手机访问</strong><span>${wbText(remoteStatus)}</span><button type="button" data-wb-access>访问控制</button></div>
     <div class="wb-cap-summary">Claude Skill 目录 ${skills.length} 个 · 已配置 MCP ${mcpServers.length} 个 · 模型目录 ${models.length} 项</div>
     <div class="wb-cap-list">${agents.map(a => {

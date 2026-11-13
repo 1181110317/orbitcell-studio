@@ -1,4 +1,5 @@
-// AgentHub - 聚合 Agent 工作台
+// OrbitCell - 聚合 Agent 工作台
+require('./lib/brand.cjs');
 const auth = require('./lib/auth');
 // Validate access control before loading optional runtimes or opening resources.
 auth.enabled();
@@ -56,8 +57,10 @@ const quota = require('./lib/quota');
 const logring = require('./lib/logring');
 const modelCapabilities = require('./lib/model-capabilities');
 const modelCenter = require('./lib/model-center');
+const agentCenter = require('./lib/agent-center');
 const messageFeatures = require('./lib/message-features');
 const permissionMemory = require('./lib/permission-memory');
+const permissionAudit = require('./lib/permission-audit');
 // 本机终端（可选依赖，缺失时降级提示）
 let pty = null;
 try { pty = require('node-pty'); } catch { pty = null; }
@@ -73,6 +76,10 @@ const settings = new Store('settings', {
   customAgents: [],      // {id,name,bin,args,argPrompt,color}
   currentProvider: {},   // { claude: providerId, ... }
   agentRoutes: {},       // Per-Agent defaults over the shared provider catalog.
+  // Shared model connection used by every Agent unless an Agent/environment
+  // route explicitly overrides it.  Keep the legacy maps above for backwards
+  // compatibility with existing sessions and settings exports.
+  modelDefaults: { providerId: '', model: '', effort: '' },
   sound: true,
   terminalShell: 'auto', // auto / pwsh / powershell / cmd
   recentModels: {},
@@ -95,10 +102,14 @@ usage.setPricingOverrides(() => settings.data.modelPricing || null);
 agents.setMcpOptions({
   port: PORT,
   token: process.env.AGENTHUB_TOKEN || '',
-  enabled: () => settings.data.mcpTools !== false,
-  disabled: () => Array.isArray(settings.data.mcpDisabledTools) ? settings.data.mcpDisabledTools : [],
+  enabled: agent => settings.data.mcpTools !== false && (agentCenter.featureEnabled(settings.data, agent, 'agenthubTools') || agentCenter.featureEnabled(settings.data, agent, 'browserTools')),
+  disabled: agent => [...new Set([...(Array.isArray(settings.data.mcpDisabledTools) ? settings.data.mcpDisabledTools : []),
+    ...mcpTools.TOOLS.filter(tool => tool.name.startsWith('browser_')
+      ? !agentCenter.featureEnabled(settings.data, agent, 'browserTools')
+      : !agentCenter.featureEnabled(settings.data, agent, 'agenthubTools')).map(tool => tool.name)])],
   // 第三方 MCP 服务器：按目标 agent 求值，改设置后对下一个会话生效
   extraServers: agentId => {
+    if (!agentCenter.featureEnabled(settings.data, agentId, 'mcpServers')) return null;
     try {
       return { claude: mcpServers.claudeEntries(agentId), codex: mcpServers.codexMcpArgs(agentId) };
     } catch (e) {
@@ -127,8 +138,10 @@ const sessionsStore = new Store('sessions', { sessions: [] }, {
     }, null, 2);
   },
 });
-const providerStore = new Store('providers', { list: [], meta: {} }); // AgentHub 独立管理的 API 入口
-const modelCacheStore = new Store('model-cache', { byProvider: {} }); // 拉取过的 /v1/models 缓存（#3）
+const providerStore = new Store('providers', { list: [], meta: {} }); // OrbitCell 独立管理的 API 入口
+// 供应商模型目录单独缓存，避免编辑连接后把旧目录误当成新端点结果。
+// status 保存最近一次同步的结果，供模型管理页显示“成功/失败/缓存”状态。
+const modelCacheStore = new Store('model-cache', { byProvider: {}, status: {} });
 
 // 持久化底盘：会话正文（data/sessions/<id>.json）是「事件日志的派生缓存」。
 // 正文损坏时，用 data/events/<id>.jsonl 的事件重建一份可读消息列表（best
@@ -152,7 +165,7 @@ function rebuildMessagesFromEvents(sessionId) {
     return cur;
   };
   const closeCur = () => {
-    if (cur && (cur.blocks.length || cur.usage || cur.files?.length || cur.images?.length || cur.pages?.length || cur.plan)) msgs.push(cur);
+    if (cur && (cur.blocks.length || cur.usage || cur.files?.length || cur.images?.length || cur.pages?.length || cur.plan || cur.permissionAudit)) msgs.push(cur);
     cur = null;
   };
   const blockFromEvent = (ev, ts) => {
@@ -163,6 +176,10 @@ function rebuildMessagesFromEvents(sessionId) {
       case 'error': return { type: 'error', text: String(ev.text || ''), ts };
       case 'stderr': return { type: 'stderr', text: String(ev.text || ''), ts };
       case 'stopped': return { type: 'stopped', ts };
+      case 'question-response': {
+        const record = require('./lib/question-record').clean(ev);
+        return record ? { type: 'question-response', ...record, ts } : null;
+      }
       default: return null;
     }
   };
@@ -198,7 +215,13 @@ function rebuildMessagesFromEvents(sessionId) {
     if (ev.kind === 'files') {
       const c = ensureCur(ts); c.files = [...(c.files || []), ...(cleanStoredFiles(ev.files) || [])]; continue;
     }
-    if (ev.kind === 'plan') { ensureCur(ts).plan = cleanStoredPlan({ plan: ev.plan, todos: ev.todos }); continue; }
+    if (ev.kind === 'permission-response') {
+      const c = ensureCur(ts); c.permissionAudit = permissionAudit.add(c.permissionAudit, ev); continue;
+    }
+    if (ev.kind === 'status' && permissionAudit.automaticTool(ev.text)) {
+      const c = ensureCur(ts); c.permissionAudit = permissionAudit.addAutomatic(c.permissionAudit, permissionAudit.automaticTool(ev.text)); continue;
+    }
+    if (ev.kind === 'plan') { ensureCur(ts).plan = cleanStoredPlan({ plan: ev.plan, todos: ev.todos, explanation: ev.explanation }); continue; }
     if (ev.kind === 'image') {
       const c = ensureCur(ts), images = cleanStoredImages(ev.images || (ev.url ? [ev.url] : [])) || [];
       const tool = ev.origin === 'tool' && ev.id && c.blocks.find(b => b.type === 'tool' && b.id === ev.id);
@@ -263,6 +286,12 @@ if (!isRecord(settings.data.currentProvider)) settings.data.currentProvider = {}
 else settings.data.currentProvider = Object.fromEntries(Object.entries(settings.data.currentProvider)
   .filter(([id, value]) => /^[A-Za-z0-9:_-]{1,128}$/.test(id) && typeof value === 'string')
   .map(([id, value]) => [id, value.trim().slice(0, 256)]));
+if (!isRecord(settings.data.modelDefaults)) settings.data.modelDefaults = { providerId: '', model: '', effort: '' };
+else settings.data.modelDefaults = {
+  providerId: typeof settings.data.modelDefaults.providerId === 'string' ? settings.data.modelDefaults.providerId.trim().slice(0, 256) : '',
+  model: typeof settings.data.modelDefaults.model === 'string' ? settings.data.modelDefaults.model.trim().slice(0, 256) : '',
+  effort: typeof settings.data.modelDefaults.effort === 'string' && EFFORT_LEVELS.includes(settings.data.modelDefaults.effort) ? settings.data.modelDefaults.effort : '',
+};
 // 项目默认（T1-4）：展开后的 cwd → { permMode, providerId, model, effort }，最多 64 个项目
 if (!isRecord(settings.data.projectDefaults)) settings.data.projectDefaults = {};
 else settings.data.projectDefaults = Object.fromEntries(Object.entries(settings.data.projectDefaults)
@@ -270,6 +299,7 @@ else settings.data.projectDefaults = Object.fromEntries(Object.entries(settings.
   .slice(0, 64)
   .map(([k, v]) => [k, {
     permMode: typeof v.permMode === 'string' && PERM_MODES.includes(v.permMode) ? v.permMode : '',
+    ...(require('./lib/agent-models').DSH_PERMISSIONS.includes(v.dshPermission)?{dshPermission:v.dshPermission}:{}),
     providerId: typeof v.providerId === 'string' ? v.providerId.trim().slice(0, 256) : '',
     model: typeof v.model === 'string' ? v.model.trim().slice(0, 256) : '',
     effort: typeof v.effort === 'string' && EFFORT_LEVELS.includes(v.effort) ? v.effort : '',
@@ -286,6 +316,7 @@ else settings.data.projectProfiles = settings.data.projectProfiles.map(v => {
     cwd: typeof v.cwd === 'string' ? v.cwd.trim().slice(0, 4096) : '',
     description: typeof v.description === 'string' ? v.description.trim().slice(0, 400) : '',
     permMode: typeof v.permMode === 'string' && PERM_MODES.includes(v.permMode) ? v.permMode : '',
+    ...(require('./lib/agent-models').DSH_PERMISSIONS.includes(v.dshPermission)?{dshPermission:v.dshPermission}:{}),
     providerId: typeof v.providerId === 'string' ? v.providerId.trim().slice(0, 256) : '',
     model: typeof v.model === 'string' ? v.model.trim().slice(0, 256) : '',
     effort: typeof v.effort === 'string' && EFFORT_LEVELS.includes(v.effort) ? v.effort : '',
@@ -326,7 +357,7 @@ if (!['auto', 'pwsh', 'powershell', 'cmd'].includes(String(settings.data.termina
 // 的形状。只保留网页实际会使用的字段，避免坏数据在渲染、撤销或统计时
 // 触发 `.map`/字符串拼接异常；文本正文本身不截断，保持历史语义不变。
 const cleanStoredString = (value, max) => typeof value === 'string' ? value.slice(0, max) : undefined;
-// 会话历史最终会进入前端 <img src>。只允许 AgentHub 自己保存的上传文件和
+// 会话历史最终会进入前端 <img src>。只允许 OrbitCell 自己保存的上传文件和
 // CLI 返回的常见栅格图片 data URL，避免坏历史/伪造事件把任意协议塞进 DOM。
 const isSafeImageSource = value => {
   if (typeof value !== 'string' || value.length === 0 || value.length >= 600000) return false;
@@ -361,6 +392,8 @@ const cleanStoredFiles = files => {
       undone: f.undone === true,
     };
     if (typeof f.created === 'boolean') out.created = f.created;
+    if (f.replaceAll === true) out.replaceAll = true;
+    if (Number.isSafeInteger(f.writtenLines) && f.writtenLines >= 0) out.writtenLines = f.writtenLines;
     if (!out.path) return null;
     if (f.snapshotUnavailable === true) out.snapshotUnavailable = true;
     else {
@@ -401,18 +434,7 @@ const cleanStoredImages = images => Array.isArray(images)
 const cleanStoredPages = pages => Array.isArray(pages)
   ? pages.filter(x => typeof x === 'string' && /^https?:\/\//i.test(x) && x.length <= 4096).slice(0, 8)
   : undefined;
-const cleanStoredPlan = plan => {
-  if (!isRecord(plan)) return undefined;
-  const out = {};
-  if (typeof plan.plan === 'string') out.plan = plan.plan;
-  if (Array.isArray(plan.todos)) {
-    out.todos = plan.todos.filter(isRecord).map(t => ({
-      text: typeof t.text === 'string' ? t.text : (typeof t.content === 'string' ? t.content : ''),
-      status: ['completed', 'in_progress', 'pending'].includes(t.status) ? t.status : 'pending',
-    })).filter(t => t.text).slice(0, 100);
-  }
-  return out.plan || (out.todos && out.todos.length) ? out : undefined;
-};
+const cleanStoredPlan = require('./lib/plan-progress').clean;
 const cleanStoredUsage = usageValue => {
   if (!isRecord(usageValue)) return undefined;
   const n = value => { const x = Number(value); return Number.isFinite(x) && x >= 0 ? x : 0; };
@@ -465,6 +487,7 @@ const normalizeSessionRecord = s => {
     m.images = cleanStoredImages(m.images);
     m.pages = cleanStoredPages(m.pages);
     m.plan = cleanStoredPlan(m.plan);
+    m.permissionAudit = permissionAudit.clean(m.permissionAudit);
     m.usage = cleanStoredUsage(m.usage);
   }
   const permission = normalizePermissionState(s.autoPerms === true, s.permMode);
@@ -483,6 +506,7 @@ const normalizeSessionRecord = s => {
     cliSessionStartTs: Number.isFinite(Number(s.cliSessionStartTs)) ? Number(s.cliSessionStartTs) : 0,
     autoPerms: permission.autoPerms,
     permMode: permission.permMode,
+    ...(s.agent==='dsh'?{dshPermission:require('./lib/agent-models').DSH_PERMISSIONS.includes(s.dshPermission)?s.dshPermission:'default'}:{}),
     effort: EFFORT_LEVELS.includes(s.effort) ? s.effort : '',
     titled: s.titled === true,
     pinned: s.pinned === true,
@@ -509,12 +533,18 @@ if (!Array.isArray(settings.data.skillImports)) settings.data.skillImports = [];
 sessionsStore.data.sessions = sessionsStore.data.sessions.map(normalizeSessionRecord).filter(Boolean);
 if (!isRecord(providerStore.data)) providerStore.data = {};
 if (!Array.isArray(providerStore.data.list)) providerStore.data.list = [];
+const providerModels = require('./public/provider-models');
 const normalizeProviderRecord = p => ({
+  enabledModels: Array.isArray(p.enabledModels) ? providerModels.clean(p.enabledModels) : undefined,
   ...p,
   // 拦掉原型危险键（__proto__ 等会顺着 byProvider[p.id] 赋值打到原型上）；
   // 其余字符保持兼容，避免手改/旧数据里的合法 id 被整条丢掉
   id: typeof p.id === 'string' && p.id.trim() && !/^(?:__proto__|constructor|prototype)$/.test(p.id) && !/[\0\r\n]/.test(p.id) ? p.id.slice(0, 256) : '',
   agent: typeof p.agent === 'string' ? p.agent.slice(0, 128) : '',
+  // New connections are shared by design.  Legacy records without scope keep
+  // their old Agent hint but are still treated as shared when they have a
+  // usable API endpoint, so adding a model never requires per-Agent wiring.
+  scope: p.scope === 'agent' ? 'agent' : 'shared',
   name: typeof p.name === 'string' ? p.name.slice(0, 120) : '未命名供应商',
   baseUrl: typeof p.baseUrl === 'string' ? p.baseUrl.slice(0, 2048) : '',
   apiKey: typeof p.apiKey === 'string' ? p.apiKey.slice(0, 4096) : '',
@@ -540,9 +570,8 @@ const normalizeProviderRecord = p => ({
 });
 providerStore.data.list = providerStore.data.list.filter(isRecord).map(normalizeProviderRecord).filter(p => p.id);
 if (!isRecord(providerStore.data.meta)) providerStore.data.meta = {};
-
 // 旧版本从 cc-switch 实时读取供应商。首次启动时只做一次兼容性导入，
-// 之后所有 API 路由都只读 AgentHub 自己的 providers.json；即使用户卸载
+// 之后所有 API 路由都只读 OrbitCell 自己的 providers.json；即使用户卸载
 // cc-switch、数据库不可读或 Node 没有 node:sqlite，已导入/手动配置仍可用。
 function importLegacyCcswitchProviders() {
   if (providerStore.data.meta.ccswitchImportDone === true) return;
@@ -569,11 +598,34 @@ function importLegacyCcswitchProviders() {
   providerStore.saveNow();
 }
 importLegacyCcswitchProviders();
+// Complete the one-time migration after legacy imports and the built-in
+// Magpie connection are available.  This also upgrades installations whose
+// only existing default was a Magpie or imported connection.
+if (!settings.data.modelDefaults?.providerId) {
+  const current = settings.data.currentProvider || {};
+  const preferred = Object.values(current).map(id => allProviders().find(p => p.id === id && p.scope !== 'agent' && p.shared !== false))
+    .find(Boolean) || allProviders().find(p => p.scope !== 'agent' && p.shared !== false && p.isCurrent);
+  if (preferred) {
+    settings.data.modelDefaults = { providerId: preferred.id, model: preferred.model || '', effort: preferred.effort || '' };
+    settings.save();
+  }
+}
 if (!isRecord(modelCacheStore.data)) modelCacheStore.data = {};
 if (!isRecord(modelCacheStore.data.byProvider)) modelCacheStore.data.byProvider = {};
 else modelCacheStore.data.byProvider = Object.fromEntries(Object.entries(modelCacheStore.data.byProvider)
   .filter(([id, models]) => typeof id === 'string' && Array.isArray(models))
   .map(([id, models]) => [id, models.filter(x => typeof x === 'string').map(x => x.slice(0, 256)).slice(0, 2000)]));
+if (!isRecord(modelCacheStore.data.status)) modelCacheStore.data.status = {};
+else modelCacheStore.data.status = Object.fromEntries(Object.entries(modelCacheStore.data.status)
+  .filter(([id, status]) => typeof id === 'string' && isRecord(status))
+  .map(([id, status]) => [id, {
+    at: Math.max(0, Number(status.at) || 0),
+    ok: status.ok === true,
+    stale: status.stale === true,
+    error: typeof status.error === 'string' ? status.error.slice(0, 1000) : '',
+    count: Math.max(0, Number(status.count) || 0),
+    source: typeof status.source === 'string' ? status.source.slice(0, 32) : '',
+  }]));
 const SESSION_ARCHIVE_FILE = path.join(DATA_DIR, 'sessions-archive.jsonl');
 const MAX_ACTIVE_SESSIONS = Math.min(5000, Math.max(100, Number(process.env.AGENTHUB_MAX_ACTIVE_SESSIONS) || 500));
 const archivedSessionIds = new Set();
@@ -914,7 +966,7 @@ function collectRemoteOutput(handle, timeoutMs = 20000, maxBytes = 24 * 1024 * 1
     Promise.resolve(handle.done).then(code => {
       const n = Number(code);
       const exitCode = Number.isFinite(n) ? n : 1;
-      if (exitCode !== 0 && !stdout.trim()) return finish(new Error(stderr.trim() || '远程命令失败（exit ' + exitCode + '）'));
+      if (exitCode !== 0 && !stdout.trim()) return finish(Object.assign(new Error(stderr.trim() || '远程命令失败（exit ' + exitCode + '）'), { remoteExitCode: exitCode }));
       finish(null, { code: exitCode, stdout, stderr });
     }).catch(finish);
   });
@@ -1036,11 +1088,11 @@ const AUTH_EXEMPT = new Set(['/api/auth/status', '/api/auth/login', '/api/auth/e
 // the Hub token header; no other MCP endpoint bypasses authentication.
 app.get('/api/mcp/oauth/callback', async (req, res) => {
   res.set('Cache-Control', 'no-store').set('Referrer-Policy', 'no-referrer');
-  if (restoreState) return res.status(409).send('请重启 AgentHub 后重新授权');
+  if (restoreState) return res.status(409).send('请重启 OrbitCell 后重新授权');
   try {
     await require('./lib/mcp-oauth').complete(req.query, id => mcpServers.find(id));
-    res.type('html').send('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>MCP 授权完成</title><body><h1>授权完成</h1><p>可以关闭此页，返回 AgentHub 测试连接。</p></body></html>');
-  } catch { res.status(400).type('text').send('授权未完成或流程已过期，请返回 AgentHub 重新登录。'); }
+    res.type('html').send('<!doctype html><html lang="zh-CN"><meta charset="utf-8"><title>MCP 授权完成</title><body><h1>授权完成</h1><p>可以关闭此页，返回 OrbitCell 测试连接。</p></body></html>');
+  } catch { res.status(400).type('text').send('授权未完成或流程已过期，请返回 OrbitCell 重新登录。'); }
 });
 // 网页代理票据只在这里消费一次，然后在请求上打标记。票据是「一次性」的，若在
 // 认证层消费掉、令牌层再看一次就会失败（两层认证先后都会跑）。
@@ -1111,7 +1163,7 @@ app.use((req, res, next) => {
   const write = !['GET', 'HEAD', 'OPTIONS'].includes(req.method);
   const p = normPath(req.path);
   if (restoreState && p.startsWith('/api') && (write || p === '/api/backup')) {
-    return res.status(409).json({ error: '备份恢复中或已完成，请重启 AgentHub 后再操作', restartRequired: true });
+    return res.status(409).json({ error: '备份恢复中或已完成，请重启 OrbitCell 后再操作', restartRequired: true });
   }
   if (write && p.startsWith('/api') && p !== '/api/restore') {
     activeWrites++;
@@ -1221,7 +1273,7 @@ app.post('/api/auth/disable', (req, res) => {
   catch (e) { res.status(400).json({ error: e.message }); }
 });
 // ---------- 静态资源 + vendor ----------
-// AgentHub 是本地工作台，前端迭代时不能继续复用旧的 app.js/style.css；
+// OrbitCell 是本地工作台，前端迭代时不能继续复用旧的 app.js/style.css；
 // 否则新增统计布局会出现“源码有、页面没有”的错觉。
 app.use(express.static(path.join(__dirname, 'public'), {
   setHeaders(res, filePath) {
@@ -1236,6 +1288,14 @@ app.get('/vendor/xterm.css', (req, res) => res.sendFile(path.join(__dirname, 'no
 app.get('/vendor/addon-fit.js', (req, res) => res.sendFile(path.join(__dirname, 'node_modules/@xterm/addon-fit/lib/addon-fit.js')));
 
 // ---------- providers ----------
+function cleanModelsUrl(value) {
+  if (typeof value !== 'string' || value.length > 2048) throw new Error('模型目录地址格式无效');
+  if (!value.trim()) return '';
+  let url; try { url = new URL(value.trim()); } catch { throw new Error('模型目录地址必须是完整的 http(s) 地址'); }
+  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.hash) throw new Error('模型目录地址必须是 http(s) 地址，不能包含账户密码或锚点');
+  if([...url.searchParams.keys()].some(key=>/^(?:api[-_]?key|key|access_token|token|authorization|secret|password|auth)$/i.test(key)))throw new Error('请在 API Key 字段填写密钥，不要放入模型目录地址');
+  return url.href;
+}
 function allProviders() {
   // Manual providers stay local; Magpie contributes its live gateway catalog.
   // Subscription credentials remain inside Magpie.
@@ -1247,7 +1307,45 @@ function allProviders() {
   // 合并历史拉取过的模型目录缓存。
   const cache = modelCacheStore.data.byProvider || {};
   const linked = modelCenter.provider();
-  return [...local.map(p => ({ ...p, models: [...new Set([...(p.models || []), ...(cache[p.id] || [])])] })), ...(linked ? [linked] : [])];
+  const status = modelCacheStore.data.status || {};
+  const providers = local.map(p => {
+    const manualModels = Array.isArray(p.models) ? p.models : [];
+    const cachedModels = Array.isArray(cache[p.id]) ? cache[p.id] : [];
+    return {
+      ...p,
+      models: [...new Set([...manualModels, ...cachedModels])],
+      manualModels,
+      modelSources: { manual: manualModels.length, cached: cachedModels.length },
+      modelSync: {
+        at: Math.max(0, Number(status[p.id]?.at) || 0),
+        ok: status[p.id]?.ok === true,
+        stale: status[p.id]?.stale === true,
+        error: typeof status[p.id]?.error === 'string' ? status[p.id].error : '',
+        count: Math.max(0, Number(status[p.id]?.count) || cachedModels.length),
+        source: typeof status[p.id]?.source === 'string' ? status[p.id].source : (cachedModels.length ? 'cache' : ''),
+      },
+    };
+  });
+  // Magpie is exposed as a normal connection in the management UI. Keep its
+  // live/cache state in the same shape as manually managed providers so the
+  // connection list does not incorrectly say "not synced" for a populated
+  // local catalog.
+  if (linked) {
+    const ms = modelCenter.status();
+    providers.push({
+      ...linked,
+      modelSources: { manual: 0, cached: linked.models.length },
+      modelSync: {
+        at: Math.max(0, Number(ms.checkedAt) || 0),
+        ok: ms.connected === true,
+        stale: ms.cached === true,
+        error: typeof ms.error === 'string' ? ms.error : '',
+        count: Math.max(0, Number(ms.modelCount) || linked.models.length),
+        source: 'magpie',
+      },
+    });
+  }
+  return providers;
 }
 function findProvider(id) {
   return allProviders().find(p => p.id === id) || null;
@@ -1273,10 +1371,11 @@ function supportsManagedPermissions(agent) {
   return ['claude', 'codex', 'zcode'].includes(id);
 }
 function providerFitsAgent(agent, provider) {
-  if (!provider || agent === 'builtin' || agent === 'chatgpt-web') return true;
-  if (['claude', 'codex', 'zcode'].includes(agent) && provider.baseUrl && provider.apiKey) return true;
+  if (!require('./lib/model-access').enabled(provider,agent,settings.data)) return false;
+  if (agentCenter.managesOwnModels(settings.data,agent)) return false;
+  if (!provider) return false;
+  if (provider.scope !== 'agent' && provider.shared !== false) return true;
   if (agent === 'zcode') return provider.agent === 'zcode' || provider.agent === 'claude';
-  if (String(agent).startsWith('acp:')) return false;
   return provider.agent === agent;
 }
 function validRemoteHost(hostId) {
@@ -1284,17 +1383,31 @@ function validRemoteHost(hostId) {
 }
 // 解析某 Agent 的默认供应商：本应用 ★ 默认 → 导入记录的历史当前标记 → 无。
 function defaultProviderForAgent(agentId) {
+  // `agentRoutes` is the explicit per-Agent override.  `currentProvider` is a
+  // legacy star and must remain a fallback so it cannot silently beat the new
+  // shared global default.
+  const explicit = settings.data.agentRoutes?.[agentId]?.providerId || '';
+  const global = settings.data.modelDefaults || {};
+  const all = allProviders();
+  if (explicit) {
+    const routed = all.find(p => p.id === explicit && providerFitsAgent(agentId, p));
+    if (routed) return routed;
+  }
+  if (global.providerId) {
+    const shared = all.find(p => p.id === global.providerId && p.scope !== 'agent' && p.shared !== false);
+    if (shared && providerFitsAgent(agentId, shared)) return shared;
+  }
   if (agentId === 'chatgpt-web') {
     const current = settings.data.currentProvider || {};
     const star = current[agentId] || current.builtin || '';
-    const list = allProviders();
+    const list = all;
     if (star) { const p = list.find(x => x.id === star); if (p) return p; }
     return list.find(p => p.isCurrent) || list[0] || null;
   }
   const want = agentId === 'zcode' ? 'claude' : agentId;
   const current = settings.data.currentProvider || {};
   const star = current[agentId] || current[want] || '';
-  const list = allProviders().filter(p => providerFitsAgent(agentId, p));
+  const list = all.filter(p => providerFitsAgent(agentId, p));
   if (star) { const p = list.find(x => x.id === star); if (p) return p; }
   return list.find(p => p.isCurrent) || null;
 }
@@ -1325,31 +1438,36 @@ function maskProvider(p) {
     imageApiKey: p.imageApiKey ? (p.imageApiKey.length <= 10 ? '***' : p.imageApiKey.slice(0, 6) + '***' + p.imageApiKey.slice(-4)) : '',
     apiKeys: maskedKeys, hasApiKeys: maskedKeys.length > 0,
     effort: p.effort || '',
-    models: Array.isArray(p.models) ? p.models : [], apiKey: masked, maskedKey: masked,
+    models: Array.isArray(p.models) ? p.models : [], enabledModels: Array.isArray(p.enabledModels) ? p.enabledModels : undefined, apiKey: masked, maskedKey: masked,
+    manualModels: Array.isArray(p.manualModels) ? p.manualModels : (Array.isArray(p.models) ? p.models : []),
     isCurrent: !!p.isCurrent, websiteUrl: p.websiteUrl || '', source: p.source || 'manual',
     managed: p.managed !== false, importedFrom: p.importedFrom || '', ccsId: p.ccsId || '',
-    protocol: p.protocol || '', balanceType: p.balanceType || '',
+    scope: p.scope === 'agent' ? 'agent' : 'shared', shared: p.scope !== 'agent' && p.shared !== false,
+    isGlobalDefault: settings.data.modelDefaults?.providerId === p.id,
+    protocol: p.protocol || '', modelsUrl: p.modelsUrl || '', balanceType: p.balanceType || '',
+    agentOverrides: settings.data.modelAccess?.[p.id]?.agents || {},
     imageInput: p.imageInput === true,
+    modelSources: p.modelSources && typeof p.modelSources === 'object' ? {
+      manual: Math.max(0, Number(p.modelSources.manual) || 0),
+      cached: Math.max(0, Number(p.modelSources.cached) || 0),
+    } : { manual: 0, cached: 0 },
+    modelSync: p.modelSync && typeof p.modelSync === 'object' ? {
+      at: Math.max(0, Number(p.modelSync.at) || 0),
+      ok: p.modelSync.ok === true,
+      stale: p.modelSync.stale === true,
+      error: typeof p.modelSync.error === 'string' ? p.modelSync.error.slice(0, 1000) : '',
+      count: Math.max(0, Number(p.modelSync.count) || 0),
+      source: typeof p.modelSync.source === 'string' ? p.modelSync.source.slice(0, 32) : '',
+    } : { at: 0, ok: false, stale: false, error: '', count: 0, source: '' },
     lastHealth: p.lastHealth && typeof p.lastHealth === 'object' ? { at: p.lastHealth.at, ok: p.lastHealth.ok, ms: p.lastHealth.ms, error: p.lastHealth.error, mode: p.lastHealth.mode } : null,
     // 自定义额度接口（new-api 系令牌用量）：token 与 apiKey 同等对待，只回脱敏值
-    quotaApi: qa ? { type: qa.type, url: qa.url || '', hasToken: !!qaToken, token: qaToken ? (qaToken.length <= 10 ? qaToken.slice(0, 4) + '***' : qaToken.slice(0, 4) + '***' + qaToken.slice(-4)) : '' } : null,
+    quotaApi: qa ? { type: qa.type, url: qa.url || '', auth: qa.auth || 'bearer', metrics: qa.metrics || [], hasToken: !!qaToken, token: qaToken ? '***' : '' } : null,
   };
 }
 // 供应商自定义额度接口（T1-5 ①）：目前支持 new-api/one-api 系的令牌用量端点。
 // 只接受明确的类型与 http(s) 地址；非法输入直接丢弃（不阻断供应商保存）。
 function sanitizeQuotaApi(raw) {
-  if (!isRecord(raw)) return null;
-  const type = String(raw.type || '').trim().toLowerCase();
-  if (type !== 'newapi') return null;
-  const url = String(raw.url || '').trim().slice(0, 2048);
-  if (url) {
-    try {
-      const u = new URL(url);
-      if (!/^https?:$/.test(u.protocol)) return null;
-    } catch { return null; }
-  }
-  const token = String(raw.token || '').trim().slice(0, 512);
-  return { type, url, token };
+  return require('./lib/quota-source').sanitize(raw);
 }
 
 // ---------- model capabilities ----------
@@ -1436,12 +1554,18 @@ app.post('/api/providers', (req, res) => {
     catch (e) { return res.status(400).json({ error: e.message }); }
   }
   const { agent, name, baseUrl, apiKey, model, effort, protocol, models } = payload;
+  if (payload.enabledModels !== undefined && !providerModels.valid(payload.enabledModels)) return res.status(400).json({error:'已选模型列表无效'});
+  let modelsUrl;
+  try { modelsUrl = payload.modelsUrl == null ? '' : cleanModelsUrl(payload.modelsUrl); }
+  catch (error) { return res.status(400).json({error:error.message}); }
   const apiKeysIn = Array.isArray(payload.apiKeys) ? payload.apiKeys : undefined;
-  if (typeof agent !== 'string' || typeof name !== 'string' || !agent.trim() || !name.trim()) return res.status(400).json({ error: 'agent/name 必填' });
-  const agentId = agent.trim();
+  if (typeof name !== 'string' || !name.trim()) return res.status(400).json({ error: 'name 必填' });
+  const agentId = typeof agent === 'string' && agent.trim() ? agent.trim() : 'shared';
   const providerName = name.trim();
   if (providerName.length > 120) return res.status(400).json({ error: '供应商名称过长' });
-  if (!knownAgent(agentId)) return res.status(400).json({ error: '未知 Agent：' + agentId });
+  if (agentId !== 'shared' && !knownAgent(agentId)) return res.status(400).json({ error: '未知 Agent：' + agentId });
+  const requestedScope = payload.scope == null ? 'shared' : String(payload.scope).trim().toLowerCase();
+  if (!['shared', 'agent'].includes(requestedScope)) return res.status(400).json({ error: '连接范围无效' });
   if (baseUrl != null && typeof baseUrl !== 'string') return res.status(400).json({ error: 'Base URL 格式无效' });
   if (apiKey != null && typeof apiKey !== 'string') return res.status(400).json({ error: 'API Key 格式无效' });
   if (model != null && typeof model !== 'string') return res.status(400).json({ error: '模型格式无效' });
@@ -1461,7 +1585,8 @@ app.post('/api/providers', (req, res) => {
     catch { return res.status(400).json({ error: 'Base URL 必须是 http(s) 地址' }); }
   }
   const modelList = Array.isArray(models) ? [...new Set(models.map(x => String(x || '').trim()).filter(x => x && x.length <= 256))].slice(0, 2000) : [];
-  const p = { id: 'local:' + crypto.randomUUID(), agent: agentId, name: providerName, baseUrl: cleanBase, apiKey: apiKey || '', model: model || '', models: modelList, effort: effortValue, protocol: protocolValue, source: String(payload.source || 'manual').startsWith('preset:') ? String(payload.source) : 'manual', managed: true, createdAt: Date.now() };
+  const p = { id: 'local:' + crypto.randomUUID(), agent: agentId, scope: requestedScope, name: providerName, baseUrl: cleanBase, apiKey: apiKey || '', model: model || '', models: modelList, modelsUrl, effort: effortValue, protocol: protocolValue, source: String(payload.source || 'manual').startsWith('preset:') ? String(payload.source) : 'manual', managed: true, createdAt: Date.now() };
+  if (payload.enabledModels !== undefined) p.enabledModels = providerModels.clean(payload.enabledModels);
   // 备选 Key 池：纯文本行进入池；含 *** 的行是前端回传的脱敏值，丢弃（创建时没有旧值可保）
   if (Array.isArray(apiKeysIn)) {
     const keys = apiKeysIn.map(x => typeof x === 'string' ? x.trim() : '').filter(x => x && !x.includes('***')).map(x => x.slice(0, 4096)).slice(0, 20);
@@ -1482,7 +1607,16 @@ app.post('/api/providers', (req, res) => {
   }
   providerStore.data.list.push(p);
   providerStore.save();
-  res.json(maskProvider(p));
+  // The first shared connection becomes the application-wide default.  This
+  // makes a newly configured model immediately available to every Agent while
+  // preserving an existing default chosen by the user.
+  const global = settings.data.modelDefaults || (settings.data.modelDefaults = { providerId: '', model: '', effort: '' });
+  if (p.baseUrl && p.scope !== 'agent' && !global.providerId) {
+    settings.data.modelDefaults = { providerId: p.id, model: '', effort: '' };
+    settings.save();
+  }
+  acceptModelPreview(p,payload.modelPreviewId);
+  res.json(maskProvider(findProvider(p.id)));
 });
 app.put('/api/providers/:id', (req, res) => {
   if (req.params.id === 'magpie:gateway') {
@@ -1492,6 +1626,10 @@ app.put('/api/providers/:id', (req, res) => {
   if (i < 0) return res.status(404).json({ error: 'API 入口不存在' });
   if (!isRecord(req.body)) return res.status(400).json({ error: '供应商请求格式无效' });
   const { name, baseUrl, apiKey, model, effort, protocol, clearApiKey, imageInput, models } = req.body;
+  if (req.body.enabledModels !== undefined && !providerModels.valid(req.body.enabledModels)) return res.status(400).json({error:'已选模型列表无效'});
+  let modelsUrl;
+  try { modelsUrl = req.body.modelsUrl == null ? undefined : cleanModelsUrl(req.body.modelsUrl); }
+  catch (error) { return res.status(400).json({error:error.message}); }
   if (name != null && (typeof name !== 'string' || !name.trim() || name.length > 120)) return res.status(400).json({ error: '供应商名称无效' });
   // models 与 POST 对齐：显式传入就校验并保存，不能静默丢弃（前端编辑弹窗不发，
   // 但 API 调用方发了却拿不到任何反馈，会以为已经存下）。
@@ -1506,7 +1644,7 @@ app.put('/api/providers/:id', (req, res) => {
     : Array.isArray(req.body.apiKeys) ? req.body.apiKeys : null;
   if (apiKeysIn === null) return res.status(400).json({ error: '备选 Key 池格式无效（应为字符串数组）' });
   const imageModelIn = req.body.imageModel === undefined ? undefined
-    : String(body.imageModel || '').trim().slice(0, 256);
+     : String(req.body.imageModel || '').trim().slice(0, 256);
   const imageBaseUrlIn = req.body.imageBaseUrl === undefined ? undefined
     : String(req.body.imageBaseUrl || '').trim().slice(0, 2048);
   const imageApiKeyIn = req.body.imageApiKey === undefined ? undefined
@@ -1524,17 +1662,31 @@ app.put('/api/providers/:id', (req, res) => {
     try { const u = new URL(cleanBase); if (!/^https?:$/.test(u.protocol) || !u.hostname) throw new Error(); }
     catch { return res.status(400).json({ error: 'Base URL 必须是 http(s) 地址' }); }
   }
+  if (imageBaseUrlIn) {
+    try {
+      const imageUrl = new URL(imageBaseUrlIn);
+      if (!/^https?:$/.test(imageUrl.protocol) || !imageUrl.hostname) throw new Error();
+    } catch { return res.status(400).json({ error: '图像接口地址必须是 http(s) 地址' }); }
+  }
   const cur = providerStore.data.list[i];
+  const scopeValue = req.body.scope === undefined ? undefined : String(req.body.scope || '').trim().toLowerCase();
+  if (scopeValue !== undefined && !['shared', 'agent'].includes(scopeValue)) return res.status(400).json({ error: '连接范围无效' });
+  const endpointChanged = (cleanBase !== undefined && cleanBase !== cur.baseUrl)
+    || (modelsUrl !== undefined && modelsUrl !== (cur.modelsUrl || ''))
+    || (protocolValue !== undefined && protocolValue !== (cur.protocol || ''))
+    || clearApiKey === true
+    || (typeof apiKey === 'string' && apiKey.trim() && !apiKey.includes('***') && apiKey !== cur.apiKey);
   // 自定义额度接口（new-api 令牌用量）：显式传入才替换；quotaApi: {clear:true} 删除
   let quotaApiNext = cur.quotaApi;
   if (req.body.quotaApi != null) {
     if (isRecord(req.body.quotaApi) && req.body.quotaApi.clear === true) quotaApiNext = undefined;
     else {
       const qa = sanitizeQuotaApi(req.body.quotaApi);
+      if (!qa) return res.status(400).json({ error: '额度接口配置无效，请检查地址、类型与数值字段路径' });
       if (qa) {
         // 只改地址时保留原令牌（前端回传的是脱敏值，不能当真实令牌覆盖）
         const prevToken = cur.quotaApi && cur.quotaApi.token ? cur.quotaApi.token : '';
-        quotaApiNext = { type: qa.type, url: qa.url, token: qa.token && !qa.token.includes('***') ? qa.token : prevToken };
+        quotaApiNext = { ...qa, token: qa.token && !qa.token.includes('***') ? qa.token : prevToken };
       }
     }
   }
@@ -1550,6 +1702,8 @@ app.put('/api/providers/:id', (req, res) => {
   }
   providerStore.data.list[i] = {
     ...cur,
+    ...(req.body.enabledModels === undefined ? {} : {enabledModels: providerModels.clean(req.body.enabledModels)}),
+    ...(scopeValue === undefined ? {} : { scope: scopeValue }),
     quotaApi: quotaApiNext,
     apiKeys: apiKeysNext === undefined ? (Array.isArray(cur.apiKeys) ? cur.apiKeys : []) : apiKeysNext,
     imageModel: imageModelIn === undefined ? (cur.imageModel || '') : imageModelIn,
@@ -1565,17 +1719,47 @@ app.put('/api/providers/:id', (req, res) => {
       : [...new Set(models.map(x => String(x || '').trim()).filter(x => x && x.length <= 256))].slice(0, 2000),
     effort: effortValue === undefined ? cur.effort || '' : effortValue,
     protocol: protocolValue === undefined ? cur.protocol || '' : protocolValue,
+    modelsUrl: modelsUrl === undefined ? cur.modelsUrl || '' : modelsUrl,
     // 图片输入能力：发送带图消息时前端据此提示（不是硬拦截，标记错了也能发）
     imageInput: imageInput === undefined ? cur.imageInput === true : imageInput,
   };
   providerStore.save();
+  if (scopeValue === 'agent' && settings.data.modelDefaults?.providerId === req.params.id) {
+    settings.data.modelDefaults = { providerId: '', model: '', effort: '' };
+    settings.save();
+  }
   // 改了地址/密钥后旧目录不再可信：模型缓存按供应商 id 存、不带配置指纹，
   // 不失效的话「编辑供应商 → 刷新模型目录」永远拿回旧端点的那一份。
-  if (modelCacheStore.data.byProvider) {
+  if (endpointChanged) {
+    delete providerStore.data.list[i].lastHealth;
+    providerStore.save();
+  }
+  if (endpointChanged && modelCacheStore.data.byProvider) {
     delete modelCacheStore.data.byProvider[req.params.id];
+    if (modelCacheStore.data.status) delete modelCacheStore.data.status[req.params.id];
     modelCacheStore.save();
   }
-  res.json(maskProvider(providerStore.data.list[i]));
+  acceptModelPreview(providerStore.data.list[i],req.body.modelPreviewId);
+  res.json(maskProvider(findProvider(req.params.id)));
+});
+
+// Explicit global default route.  Agent-specific routes remain available, but
+// this is the single place to choose what all Agents inherit by default.
+app.put('/api/model-defaults', (req, res) => {
+  if (!isRecord(req.body)) return res.status(400).json({ error: '全局默认格式无效' });
+  const providerId = String(req.body.providerId || '').trim().slice(0, 256);
+  const model = String(req.body.model || '').trim().slice(0, 256);
+  const effort = String(req.body.effort || '').trim().toLowerCase();
+  if (effort && !EFFORT_LEVELS.includes(effort)) return res.status(400).json({ error: '推理强度无效' });
+  if (providerId) {
+    const p = findProvider(providerId);
+    if (!p) return res.status(404).json({ error: '模型连接不存在' });
+    if (p.scope === 'agent' || p.shared === false) return res.status(400).json({ error: '只有共享连接可以作为全局默认' });
+    if (!p.baseUrl) return res.status(400).json({ error: 'CLI 登录配置没有共享 API 地址，请在 Agent 中使用原生登录，或选择一个 API 连接' });
+  }
+  settings.data.modelDefaults = { providerId, model, effort };
+  settings.save();
+  res.json({ ...settings.data.modelDefaults, provider: providerId ? maskProvider(findProvider(providerId)) : null });
 });
 // 平台预设：新建供应商时一键填好 baseUrl / 协议 / 常见模型。只做预填，
 // 仍走 POST /api/providers 的同一条校验；密钥永远由用户自己填。
@@ -1613,21 +1797,8 @@ async function providerHealthProbe(provider, mode) {
       if (!r.ok) return { ok: false, ms, error: 'HTTP ' + r.status + (text ? '：' + text : ''), httpStatus: r.status };
       return { ok: true, ms, mode: 'chat', model };
     }
-    const anthropic = require('./lib/provider-endpoint').protocol(provider) === 'anthropic';
-    // baseUrl 可能已经带 /v1（OpenAI 习惯）也可能是根地址（Anthropic 习惯）：
-    // 以「是否以版本段结尾」决定要不要补 /v1，两种写法都能测。
-    const url = require('./lib/provider-endpoint').endpoint(base, 'models');
-    const headers = {};
-    if (anthropic) { if (key) headers['x-api-key'] = key; headers['anthropic-version'] = '2023-06-01'; }
-    else if (key) headers.authorization = 'Bearer ' + key;
-    const r = await fetch(url, { headers, signal: controller.signal });
-    const ms = Date.now() - started;
-    const text = await r.text().catch(() => '');
-    if (r.status === 401 || r.status === 403) return { ok: false, ms, error: '密钥被拒绝（HTTP ' + r.status + '）', httpStatus: r.status };
-    if (!r.ok) return { ok: false, ms, error: 'HTTP ' + r.status + (text ? '：' + text.slice(0, 300) : ''), httpStatus: r.status };
-    let count = null;
-    try { const j = JSON.parse(text); count = Array.isArray(j.data) ? j.data.length : (Array.isArray(j.models) ? j.models.length : null); } catch {}
-    return { ok: true, ms, mode: 'models', models: count };
+    const result = await balance.listModels(provider);
+    return { ...result, ms: Date.now() - started, mode: 'models', models: result.models?.length ?? null };
   } catch (e) {
     const ms = Date.now() - started;
     let reason = e.name === 'AbortError' ? '超时（12 秒无响应）' : '';
@@ -1644,12 +1815,13 @@ async function providerHealthProbe(provider, mode) {
   } finally { clearTimeout(timer); }
 }
 app.post('/api/providers/:id/health', async (req, res) => {
-  const provider = providerStore.data.list.find(x => x.id === req.params.id);
+  const provider = findProvider(req.params.id);
   if (!provider) return res.status(404).json({ error: 'API 入口不存在' });
+  if (!isRecord(req.body)) return res.status(400).json({ error: '测试配置格式无效' });
   const mode = req.body && req.body.mode === 'chat' ? 'chat' : 'models';
   const b = req.body || {};
   const draft = { ...provider };
-  for (const key of ['baseUrl', 'model', 'protocol']) {
+  for (const key of ['baseUrl', 'model', 'protocol', 'modelsUrl']) {
     if (b[key] != null) {
       if (typeof b[key] !== 'string' || b[key].length > 4096) return res.status(400).json({ error: '测试配置格式无效' });
       draft[key] = b[key].trim();
@@ -1660,9 +1832,15 @@ app.post('/api/providers/:id/health', async (req, res) => {
   if (typeof b.apiKey === 'string' && b.apiKey.trim()) draft.apiKey = b.apiKey.trim();
   if (b.clearApiKey === true) draft.apiKey = '';
   const result = await providerHealthProbe(draft, mode);
-  provider.lastHealth = { at: Date.now(), ok: result.ok === true, ms: result.ms || 0, error: result.error || '', mode: result.mode || mode };
-  providerStore.save();
-  res.json({ ...result, lastHealth: provider.lastHealth });
+  if (result.error && draft.apiKey) result.error = result.error.split(draft.apiKey).join('[redacted]');
+  const stored = providerStore.data.list.find(x => x.id === req.params.id);
+  const unchanged = p => p && ['baseUrl','apiKey','protocol','model','modelsUrl'].every(k => (p[k] || '') === (draft[k] || ''));
+  // A probe of an unsaved form must not certify or overwrite the saved connection.
+  if (unchanged(stored)) {
+    stored.lastHealth = { at: Date.now(), ok: result.ok === true, ms: result.ms || 0, error: result.error || '', mode: result.mode || mode };
+    providerStore.save();
+  }
+  res.json({ ...result, ...(unchanged(stored) ? { lastHealth: stored.lastHealth } : {}) });
 });
 
 app.delete('/api/providers/:id', (req, res) => {
@@ -1675,11 +1853,24 @@ app.delete('/api/providers/:id', (req, res) => {
   for (const [agentId, providerId] of Object.entries(settings.data.currentProvider || {})) {
     if (providerId === req.params.id) delete settings.data.currentProvider[agentId];
   }
+  if(settings.data.modelAccess)delete settings.data.modelAccess[req.params.id];
   for (const [agentId, route] of Object.entries(settings.data.agentRoutes || {})) {
     if (route?.providerId === req.params.id) delete settings.data.agentRoutes[agentId];
   }
+  for (const configurations of Object.values(settings.data.agentTargets || {})) {
+    for (const config of Object.values(configurations || {})) if (config?.providerId === req.params.id) {
+      delete config.providerId; delete config.model; delete config.effort;
+    }
+  }
+  if (settings.data.modelDefaults?.providerId === req.params.id) {
+    const fallback = allProviders().find(p => p.id !== req.params.id && p.baseUrl && p.scope !== 'agent' && p.shared !== false);
+    settings.data.modelDefaults = fallback
+      ? { providerId: fallback.id, model: fallback.model || '', effort: fallback.effort || '' }
+      : { providerId: '', model: '', effort: '' };
+  }
   settings.save();
   if (modelCacheStore.data.byProvider) delete modelCacheStore.data.byProvider[req.params.id];
+  if (modelCacheStore.data.status) delete modelCacheStore.data.status[req.params.id];
   modelCacheStore.save();
   res.json({ removed: before - providerStore.data.list.length });
 });
@@ -1692,7 +1883,13 @@ app.post('/api/providers/balance', async (req, res) => {
 });
 app.post('/api/providers/models/preview', async (req, res) => {
   if (!isRecord(req.body)) return res.status(400).json({ error: '供应商请求格式无效' });
-  const { agent, baseUrl, apiKey, protocol } = req.body;
+  const { id, clearApiKey } = req.body;
+  if (id != null && typeof id !== 'string' || clearApiKey != null && typeof clearApiKey !== 'boolean') return res.status(400).json({ error: '连接参数无效' });
+  const saved = id ? findProvider(id) : null;
+  if (id && !saved) return res.status(404).json({ error: '模型连接不存在' });
+  const { agent = saved?.agent, baseUrl = saved?.baseUrl, protocol = saved?.protocol } = req.body;
+  const apiKey = clearApiKey ? '' : (req.body.apiKey || saved?.apiKey || '');
+  if (req.body.apiKey != null && typeof req.body.apiKey !== 'string') return res.status(400).json({ error: 'API Key 格式无效' });
   if (agent != null && typeof agent !== 'string') return res.status(400).json({ error: 'Agent 格式无效' });
   if (baseUrl == null || typeof baseUrl !== 'string' || !baseUrl.trim()) return res.status(400).json({ error: '请先填写 Base URL' });
   if (apiKey != null && typeof apiKey !== 'string') return res.status(400).json({ error: 'API Key 格式无效' });
@@ -1708,36 +1905,84 @@ app.post('/api/providers/models/preview', async (req, res) => {
   if (String(apiKey || '').length > 4096) return res.status(400).json({ error: 'API Key 过长' });
   const protocolValue = String(protocol || '').trim().toLowerCase();
   if (protocolValue && !['anthropic', 'openai'].includes(protocolValue)) return res.status(400).json({ error: '协议必须是 Anthropic 或 OpenAI 兼容' });
+  let modelsUrl;
+  try { modelsUrl = req.body.modelsUrl == null ? saved?.modelsUrl || '' : cleanModelsUrl(req.body.modelsUrl); }
+  catch (error) { return res.status(400).json({error:error.message}); }
   try {
-    const result = await balance.listModels({ agent: String(agent || ''), baseUrl: cleanBase, apiKey: apiKey || '', protocol: protocolValue });
+    const result = await balance.listModels({ agent: String(agent || ''), baseUrl: cleanBase, apiKey: apiKey || '', apiKeys: clearApiKey ? [] : saved?.apiKeys || [], modelsUrl, protocol: protocolValue });
     if (!result.ok) return res.status(502).json(result);
     const models = [...new Set((Array.isArray(result.models) ? result.models : [])
       .map(x => String(x || '').trim()).filter(x => x && x.length <= 256))].slice(0, 2000);
-    res.json({ ok: true, models, source: 'preview' });
+    const modelPreviewId=crypto.randomUUID();
+    const previewProvider={baseUrl:cleanBase,apiKey:apiKey||'',apiKeys:clearApiKey?[]:saved?.apiKeys||[],modelsUrl,protocol:protocolValue};
+    modelPreviews.set(modelPreviewId,{key:modelPreviewKey(previewProvider),models,at:Date.now()});
+    while(modelPreviews.size>50)modelPreviews.delete(modelPreviews.keys().next().value);
+    res.json({ ok: true, models, source: 'preview', modelPreviewId, endpoint: result.endpoint || '' });
   } catch (e) {
     res.status(502).json({ error: '模型目录获取失败：' + (e.message || '供应商无响应') });
   }
 });
-app.post('/api/providers/models', async (req, res) => {
-  if (!isRecord(req.body) || (req.body.id != null && typeof req.body.id !== 'string')) return res.status(400).json({ error: '供应商请求格式无效' });
-  const p = findProvider(req.body && req.body.id);
-  if (!p) return res.status(404).json({ error: '供应商不存在' });
-  if (req.body.refresh != null && typeof req.body.refresh !== 'boolean') return res.status(400).json({ error: '刷新参数无效' });
+const modelSyncPending = new Map();
+const modelPreviews = new Map();
+const modelPreviewKey = p => JSON.stringify([p.baseUrl||'',p.apiKey||(p.apiKeys||[])[0]||'',p.protocol||'',p.modelsUrl||'']);
+function acceptModelPreview(provider,id) {
+  const preview=typeof id==='string'?modelPreviews.get(id):null;
+  if(!preview||Date.now()-preview.at>600000||preview.key!==modelPreviewKey(provider))return;
+  modelPreviews.delete(id);
+  (modelCacheStore.data.byProvider||={})[provider.id]=preview.models;
+  (modelCacheStore.data.status||={})[provider.id]={at:Date.now(),ok:true,stale:false,error:'',count:preview.models.length,source:'remote'};
+  modelCacheStore.save();
+}
+const modelConnectionKey = p => JSON.stringify([p.baseUrl || '', p.apiKey || '', p.apiKeys || [], p.protocol || '', p.modelsUrl || '']);
+async function syncProviderModels(p, refresh = false) {
   if (p.source === 'magpie') {
-    const state = await modelCenter.refresh(req.body.refresh === true);
-    return res.json({ ok: state.connected, models: modelCenter.provider()?.models || [], source: 'magpie', ...(state.error ? { error: state.error } : {}) });
+    const state = await modelCenter.refresh(refresh);
+    return { ok: state.connected, models: modelCenter.provider()?.models || [], source: 'magpie', ...(state.error ? { error: state.error } : {}) };
   }
-  // 已缓存的模型目录优先直接返回（来源可以是首次导入，也可以是 AgentHub 自己拉取）。
-  if (p.models && p.models.length && !req.body.refresh) return res.json({ ok: true, models: p.models, source: 'catalog' });
+  const cached = Array.isArray(modelCacheStore.data.byProvider?.[p.id]) ? modelCacheStore.data.byProvider[p.id] : [];
+  const manual = p.manualModels || p.models || [];
+  // 普通读取优先使用已经成功同步的目录，避免每次打开模型选择器都打远程接口。
+  if ((cached.length || manual.length) && !refresh) {
+    const status = modelCacheStore.data.status?.[p.id] || {};
+    return { ok: true, models: [...new Set([...manual, ...cached])], source: cached.length ? 'catalog' : 'manual', cached: cached.length > 0, modelSync: status };
+  }
+  const fingerprint = modelConnectionKey(p), previous = modelSyncPending.get(p.id);
+  if (previous?.fingerprint === fingerprint) return previous.promise;
+  const task = { fingerprint };
+  task.promise = (async () => {
   let r;
   try { r = await balance.listModels(p); }
-  catch (e) { return res.status(502).json({ error: '模型目录获取失败：' + (e.message || '供应商无响应') }); }
-  // #3：拉取成功就落缓存，之后模型下拉始终有这份目录
-  if (r.ok && Array.isArray(r.models) && r.models.length) {
-    if (!/^(?:__proto__|constructor|prototype)$/.test(String(p.id))) modelCacheStore.data.byProvider[p.id] = r.models;
+  catch (e) { r = { ok: false, error: '模型目录获取失败：' + (e.message || '供应商无响应') }; }
+  const current = findProvider(p.id);
+  if (!current || modelConnectionKey(current) !== fingerprint) return { ok: false, models: current?.models || [], stale: true, error: '连接已更改或移除，请重新同步目录' };
+  const currentManual = current.manualModels || [];
+  const id = String(p.id);
+  if (!/^(?:__proto__|constructor|prototype)$/.test(id)) {
+    const statusStore = modelCacheStore.data.status || (modelCacheStore.data.status = {});
+    // An empty but valid directory is still a successful synchronization. It
+    // must not be reported as a network error or silently keep stale entries.
+    if (r.ok && Array.isArray(r.models)) {
+      modelCacheStore.data.byProvider[id] = [...new Set(r.models.map(x => String(x || '').trim()).filter(Boolean))].slice(0, 2000);
+      statusStore[id] = { at: Date.now(), ok: true, stale: false, error: '', count: modelCacheStore.data.byProvider[id].length, source: 'remote' };
+      modelCacheStore.save();
+      return { ...r, models: [...new Set([...currentManual, ...modelCacheStore.data.byProvider[id]])], source: 'remote', cached: false, modelSync: statusStore[id] };
+    }
+    const retained = [...new Set([...currentManual, ...cached])];
+    statusStore[id] = { at: Date.now(), ok: false, stale: retained.length > 0, error: String(r.error || '无法获取模型列表').slice(0, 1000), count: retained.length, source: retained.length ? 'cache' : 'remote' };
     modelCacheStore.save();
+    return { ok: false, models: retained, source: retained.length ? 'cache' : 'remote', cached: retained.length > 0, stale: retained.length > 0, error: statusStore[id].error, modelSync: statusStore[id] };
   }
-  res.json(r);
+  return r;
+  })().finally(() => { if (modelSyncPending.get(p.id) === task) modelSyncPending.delete(p.id); });
+  modelSyncPending.set(p.id, task);
+  return task.promise;
+}
+app.post('/api/providers/models', async (req, res) => {
+  if (!isRecord(req.body) || (req.body.id != null && typeof req.body.id !== 'string')) return res.status(400).json({ error: '供应商请求格式无效' });
+  const p = findProvider(req.body.id);
+  if (!p) return res.status(404).json({ error: '供应商不存在' });
+  if (req.body.refresh != null && typeof req.body.refresh !== 'boolean') return res.status(400).json({ error: '刷新参数无效' });
+  res.json(await syncProviderModels(p, req.body.refresh === true));
 });
 modelCenter.mount(app, { providers: allProviders, mask: maskProvider, settings, fits: providerFitsAgent, efforts: EFFORT_LEVELS });
 
@@ -1970,6 +2215,56 @@ app.get('/api/fs/search', (req, res) => {
 });
 // ---------- 技能清单（$ 菜单）：Claude config 目录 + 项目 .claude/skills ----------
 // 只读扫描 SKILL.md 的 frontmatter（name/description）；远程会话不适用。
+function disabledSkillsFor(agent) {
+  return [...new Set([...(settings.data.disabledSkills || []),...(Array.isArray(settings.data.disabledSkillsByAgent?.[agent]) ? settings.data.disabledSkillsByAgent[agent] : [])])];
+}
+app.get('/api/capabilities/inventory', async (req,res) => {
+  if(req.readOnly)return res.status(403).json({error:'原生配置扫描需要管理权限'});
+  const scanner=require('./lib/capability-inventory');
+  const agent=String(req.query.agent||''),host=String(req.query.host||'').trim();
+  if(agent&&!scanner.validAgent(agent))return res.status(400).json({error:'Agent 标识无效'});
+  try {
+    let data;
+    const cwd=String(req.query.cwd||'').trim();
+    if(host&&host!=='local') {
+      if(host!=='wsl'&&!ssh.getHostCfg(host))return res.status(404).json({error:'目标主机不存在'});
+      data=await require('./lib/remote-workspace').serialized({remoteHostId:host,cwd},'capabilities.inventory',{agent});
+    } else data=await scanner.execute({root:resolveLocalGitDir(cwd)||'',body:{agent,disabled:disabledSkillsFor(agent)}});
+    const runtimeAgent = agent.startsWith('acp:') || agent.startsWith('custom:') ? 'acp' : agent;
+    const managed = !host || host==='local' ? mcpServers.list().filter(s=>!agent||(s.agents||[]).includes(runtimeAgent)).map(mcpServers.publicServer) : [];
+    res.setHeader('Cache-Control','no-store');
+    res.json({...data,host:host==='local'?'':host,managedServers:managed,delivery:host&&host!=='local'?'目标电脑的原生配置':'本机原生配置与 OrbitCell 投递配置'});
+  }catch(error){res.status(error.status||502).json({error:'能力清单读取失败：'+error.message});}
+});
+let nativeCapabilityWrite=Promise.resolve();
+async function runCapabilityOperation(body,op) {
+  const scanner=require('./lib/capability-inventory');
+  if(!isRecord(body)||typeof body.agent!=='string'||!scanner.validAgent(body.agent))throw Object.assign(new Error('请选择有效的 Agent'),{status:400});
+  if(body.host!=null&&typeof body.host!=='string'||body.cwd!=null&&typeof body.cwd!=='string')throw Object.assign(new Error('目标环境参数无效'),{status:400});
+  const host=(body.host||'').trim(),cwd=(body.cwd||'').trim();
+  if(host&&host!=='local'){
+    if(host!=='wsl'&&!ssh.getHostCfg(host))throw Object.assign(new Error('目标主机不存在'),{status:404});
+    return require('./lib/remote-workspace').serialized({remoteHostId:host,cwd},op,body);
+  }
+  const run=()=>scanner.execute({root:resolveLocalGitDir(cwd)||'',op,body});
+  if(!['capabilities.mcp-update','capabilities.mcp-create'].includes(op))return run();
+  const next=nativeCapabilityWrite.catch(()=>{}).then(run);nativeCapabilityWrite=next;return next;
+}
+app.get('/api/capabilities/mcp',async(req,res)=>{
+  if(req.readOnly)return res.status(403).json({error:'原生配置管理需要管理权限'});
+  try{res.setHeader('Cache-Control','no-store');res.json(await runCapabilityOperation(req.query,'capabilities.mcp-detail'));}
+  catch(error){res.status(error.status||400).json({error:error.message});}
+});
+app.post('/api/capabilities/mcp',async(req,res)=>{
+  if(req.readOnly||restoreState)return res.status(403).json({error:'当前不可修改原生配置'});
+  try{res.json(await runCapabilityOperation(req.body,req.body?.create===true?'capabilities.mcp-create':'capabilities.mcp-update'));}
+  catch(error){res.status(error.status||400).json({error:error.message});}
+});
+app.get('/api/capabilities/skill-content',async(req,res)=>{
+  if(req.readOnly)return res.status(403).json({error:'技能源码预览需要管理权限'});
+  try{res.setHeader('Cache-Control','no-store');res.json(await runCapabilityOperation(req.query,'capabilities.skill-content'));}
+  catch(error){res.status(error.status||400).json({error:error.message});}
+});
 app.get('/api/skills', async (req, res) => {
   const found = resolveLocalGitDir(req.query.cwd);
   // 只读令牌不给任意目录探技能清单：虽然只回名字和 120 字描述，仍然是磁盘内容。
@@ -1977,31 +2272,64 @@ app.get('/api/skills', async (req, res) => {
   if (found && cwd === null) return;
   const q = String(req.query.q || '').toLowerCase().slice(0, 64);
   const includeDisabled = String(req.query.all || '') === '1';
-  const disabled = new Set(Array.isArray(settings.data.disabledSkills) ? settings.data.disabledSkills : []);
-  const skills = (await require('./lib/skills').inventory(cwd, [...disabled])).filter(x => !q || x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)).map(x => ({ ...x, importedFrom: (settings.data.skillImports || []).find(i => i.path === path.dirname(x.path))?.source || '' }));
+  const agent=String(req.query.agent||'');
+  if(agent&&!require('./lib/capability-inventory').validAgent(agent))return res.status(400).json({error:'Agent 标识无效'});
+  const disabled = new Set(disabledSkillsFor(agent));
+  const skills = (await require('./lib/skills').inventory(cwd, [...disabled], {agent})).filter(x => !q || x.name.toLowerCase().includes(q) || x.description.toLowerCase().includes(q)).map(x => ({ ...x, importedFrom: (settings.data.skillImports || []).find(i => i.path === path.dirname(x.path))?.source || '' }));
   skills.sort((a, b) => a.name.localeCompare(b.name));
-  res.json({ skills: includeDisabled ? skills : skills.filter(x => x.enabled), disabled: [...disabled], delivery: 'AgentHub 投递；Claude/Codex 同时应用原生禁用规则，其他 CLI 自身发现规则仍由该 CLI 管理' });
+  res.json({ skills: includeDisabled ? skills : skills.filter(x => x.enabled), disabled: [...disabled], delivery: 'OrbitCell 投递；Claude/Codex 同时应用原生禁用规则，其他 CLI 自身发现规则仍由该 CLI 管理' });
+});
+app.get('/api/skills/content', async (req, res) => {
+  // Full skill source can contain private instructions. The shared read-only
+  // identity keeps metadata access, but cannot read arbitrary skill contents.
+  if (req.readOnly) return res.status(403).json({ error: '只读模式可以浏览技能清单，源码预览需要管理权限' });
+  const name = String(req.query.name || '');
+  if (!/^[A-Za-z0-9._-]{1,160}$/.test(name)) return res.status(400).json({ error: '技能名称无效' });
+  const cwd = resolveLocalGitDir(req.query.cwd);
+  const agent=String(req.query.agent||'');
+  const disabled = disabledSkillsFor(agent);
+  const skill = (await require('./lib/skills').inventory(cwd, disabled, {agent})).find(item => item.name === name && (!req.query.id || item.id===req.query.id));
+  if (!skill) return res.status(404).json({ error: '技能不存在或已移走，请刷新清单' });
+  let handle;
+  try {
+    handle = await fs.promises.open(skill.path, 'r');
+    const stat = await handle.stat(), limit = 128 * 1024;
+    if (!stat.isFile() || stat.size > limit) return res.status(400).json({ error: '技能源文件不是普通文件或超过 128 KiB' });
+    const buffer = Buffer.alloc(limit + 1);
+    const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+    if (bytesRead > limit) return res.status(400).json({ error: '技能源文件超过 128 KiB' });
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ ...skill, content: buffer.subarray(0, bytesRead).toString('utf8') });
+  } catch { res.status(404).json({ error: '技能源文件无法读取，请刷新清单' }); }
+  finally { if (handle) await handle.close().catch(() => {}); }
 });
 app.post('/api/skills/toggle', (req, res) => {
   const name = String(req.body && req.body.name || '').trim().slice(0, 160);
   if (!name || !/^[A-Za-z0-9._-]{1,160}$/.test(name)) return res.status(400).json({ error: '技能名称无效' });
-  const disabled = new Set(Array.isArray(settings.data.disabledSkills) ? settings.data.disabledSkills : []);
+  const agent=String(req.body?.agent||'');
+  if(agent&&!require('./lib/capability-inventory').validAgent(agent))return res.status(400).json({error:'Agent 标识无效'});
+  const previous=agent?settings.data.disabledSkillsByAgent?.[agent]:settings.data.disabledSkills;
+  const disabled = new Set(Array.isArray(previous) ? previous : []);
   if (req.body && req.body.enabled === false) disabled.add(name); else disabled.delete(name);
-  settings.data.disabledSkills = [...disabled].slice(0, 200);
+  if(agent){settings.data.disabledSkillsByAgent||={};settings.data.disabledSkillsByAgent[agent]=[...disabled].slice(0,200);}
+  else settings.data.disabledSkills = [...disabled].slice(0, 200);
   settings.save();
-  res.json({ ok: true, name, enabled: !disabled.has(name), disabled: settings.data.disabledSkills });
+  res.json({ ok: true, name, agent, enabled: !disabledSkillsFor(agent).includes(name), disabled: [...disabled] });
 });
-app.post('/api/skills/import-zip', (req, res) => {
+app.post('/api/skills/import-zip', async (req, res) => {
   if (req.readOnly || restoreState) return res.status(403).json({ error: '当前不可导入技能' });
   const body = req.body || {};
   if (!isRecord(body) || !Array.isArray(body.files)) return res.status(400).json({ error: '请上传解包后的文件列表' });
   if (body.files.length > 200) return res.status(413).json({ error: '文件数超过 200' });
+  if(body.host&&body.host!=='local'){
+    try{return res.json(await runCapabilityOperation(body,'capabilities.skill-import'));}
+    catch(error){return res.status(error.status||400).json({error:error.message});}
+  }
   const scope = body.scope === 'project' ? 'project' : 'global';
   const cwd = scope === 'project' ? resolveLocalGitDir(body.cwd) : null;
   if (scope === 'project' && !cwd) return res.status(400).json({ error: '请选择有效的本机项目目录' });
   try {
-    const home = os.homedir();
-    const root = scope === 'project' ? path.join(cwd, '.claude', 'skills') : path.join(home, '.claude', 'skills');
+    const root = require('./lib/capability-inventory').importRoot(String(body.agent||'claude'),cwd);
     const result = skillImport.importZip(body.files, root);
     const records = Array.isArray(settings.data.skillImports) ? settings.data.skillImports : [];
     settings.data.skillImports = [...records.filter(item => item && item.path !== result.path), { path: result.path, name: result.name, scope, importedAt: Date.now() }];
@@ -2012,17 +2340,19 @@ app.post('/api/skills/import-zip', (req, res) => {
   }
 });
 
-app.post('/api/skills/import', (req, res) => {
+app.post('/api/skills/import', async (req, res) => {
   if (req.readOnly || restoreState) return res.status(403).json({ error: '当前不可导入技能' });
   const body = req.body || {};
+  if(body.host&&body.host!=='local'){
+    try{return res.json(await runCapabilityOperation(body,'capabilities.skill-import'));}
+    catch(error){return res.status(error.status||400).json({error:error.message});}
+  }
   const source = typeof body.source === 'string' ? body.source.trim().slice(0, 4096) : '';
   const scope = body.scope === 'project' ? 'project' : 'global';
   const cwd = scope === 'project' ? resolveLocalGitDir(body.cwd) : null;
   if (scope === 'project' && !cwd) return res.status(400).json({ error: '请选择有效的本机项目目录' });
-  const destination = scope === 'project'
-    ? path.join(cwd, '.claude', 'skills')
-    : path.join(os.homedir(), '.claude', 'skills');
   try {
+    const destination = require('./lib/capability-inventory').importRoot(String(body.agent||'claude'),cwd);
     const result = skillImport.importSkill(source, destination);
     const records = Array.isArray(settings.data.skillImports) ? settings.data.skillImports : [];
     settings.data.skillImports = [...records.filter(item => item && item.path !== result.path),
@@ -2042,6 +2372,7 @@ app.get('/api/mcp/tools', (req, res) => {
   });
 });
 // ---------- 外部 CLI 会话导入：只读扫描 + 导入为可续接的会话 ----------
+require('./lib/agent-session-import').mount(app,{sessionsStore,knownAgent,maybeArchiveSessions,isArchived:id=>archivedSessionIds.has(id)});
 // claude 的会话 id 直接写进 s.cliSessionId：后续回合走 --resume 原生续接，
 // 上下文不丢；源文件只读，绝不修改。
 app.get('/api/import/scan', (req, res) => {
@@ -2088,7 +2419,7 @@ app.use('/api/browser', (req, res, next) => {
   }
   next();
 });
-require('./lib/shared-browser').mount(app, findSession, () => settings.data.browserTools !== false);
+require('./lib/shared-browser').mount(app, findSession, session => settings.data.browserTools !== false && (!session || agentCenter.featureEnabled(settings.data, session.agent, 'browserTools')));
 app.get('/api/browser/status', (req, res) => {
   res.json({ ...browserCdp.status(), enabled: settings.data.browserTools !== false });
 });
@@ -2285,7 +2616,7 @@ app.post('/api/fs/mkdir', async (req, res) => {
       return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
     };
     if (insideDir(path.resolve(DATA_DIR), localPath) || insideDir(path.resolve(__dirname), localPath)) {
-      return res.status(400).json({ error: '不能在 AgentHub 的数据目录或安装目录内创建项目文件夹' });
+      return res.status(400).json({ error: '不能在 OrbitCell 的数据目录或安装目录内创建项目文件夹' });
     }
     await fs.promises.mkdir(localPath, { recursive: true });
     res.json({ ok: true, path: localPath });
@@ -2305,7 +2636,7 @@ app.get('/api/fs/files', async (req, res) => {
   const out = [];
   if (localHost) {
     root = expandLocalPath(root);
-    // 相对路径会落到 process.cwd()（AgentHub 自己的安装目录，含 data/）——
+    // 相对路径会落到 process.cwd()（OrbitCell 自己的安装目录，含 data/）——
     // 与 D5 不变量和 git 路由的 resolveLocalGitDir 行为一致：必须是绝对路径。
     if (!root || (!path.isAbsolute(root) && !/^[A-Za-z]:[\\/]/.test(root) && !root.startsWith('\\\\'))) {
       return res.status(400).json({ error: '本机目录必须是绝对路径：' + root });
@@ -2511,7 +2842,7 @@ function fsListDir(root, dir, limit = FS_TREE_LIMIT) {
 const FS_TRASH_DIR = path.join(DATA_DIR, 'trash');
 
 // 删除 = 移入 data/trash/<时间戳>/<原相对路径>。保留现场，可人工找回；
-// 不进备份（见 listDataFiles），也不会被 AgentHub 自动清理。
+// 不进备份（见 listDataFiles），也不会被 OrbitCell 自动清理。
 function fsTrashMove(root, rel, full) {
   const stamp = new Date().toISOString().replace(/[:.]/g, '-');
   const dest = path.join(FS_TRASH_DIR, stamp, rel);
@@ -2873,7 +3204,7 @@ const INLINE_B64_MAX_BYTES = 64 * 1024 * 1024;
 const REMOTE_B64_STDOUT_BYTES = 90 * 1024 * 1024;
 
 // 文件事件经常只记录相对路径；它属于产生该事件的会话工作目录，不能
-// 直接按 AgentHub 服务进程的当前目录读取。~、POSIX 绝对路径、Windows
+// 直接按 OrbitCell 服务进程的当前目录读取。~、POSIX 绝对路径、Windows
 // 盘符和 UNC 路径都保持原样，其余路径才拼到 cwd。
 function isTargetAbsolute(p) {
   const value = String(p || '');
@@ -2987,6 +3318,14 @@ function roDiskGate(req, res, host, target) {
   return canonical;
 }
 
+function remotePreviewError(error, targetPath) {
+  const detail = String(error?.message || ''), suffix = '：' + targetPath;
+  if (/AH_PREVIEW_MISSING|No such file or directory|cannot find (?:the )?(?:path|file)|找不到.*(?:路径|文件)/i.test(detail)) return { status:404, code:'FILE_NOT_FOUND', error:'远程文件不存在或父目录不可访问' + suffix };
+  if (/AH_PREVIEW_DIRECTORY|Is a directory|不是.*文件/i.test(detail)) return { status:400, code:'NOT_A_FILE', error:'该远程路径是目录，请从目录视图打开' + suffix };
+  if (/AH_PREVIEW_DENIED|Permission denied|Access (?:is )?denied|拒绝访问|无权访问|UnauthorizedAccess/i.test(detail)) return { status:403, code:'FILE_PERMISSION_DENIED', error:'当前 SSH 用户没有读取权限' + suffix };
+  if (/base64[^\n]*(?:command not found|not recognized)|无法将.*base64/i.test(detail)) return { status:502, code:'REMOTE_READER_UNAVAILABLE', error:'远程环境缺少 base64 文件读取工具' + suffix };
+  return { status:502, code:'REMOTE_FILE_READ_FAILED', error:'远程文件读取失败' + (Number.isFinite(error?.remoteExitCode) ? '（exit ' + error.remoteExitCode + '）' : '') + suffix + (/超时|timeout/i.test(detail) ? '；远程读取超时，请检查连接后重试' : '；请检查连接、路径与读取权限后重试') };
+}
 app.get('/api/fs/raw', async (req, res) => {
   const p = typeof req.query.path === 'string' ? req.query.path.trim() : '';
   const host = typeof req.query.host === 'string' ? req.query.host.trim() : '';
@@ -3017,8 +3356,8 @@ app.get('/api/fs/raw', async (req, res) => {
       // WSL 内路径 cat 回来。异步执行，不能让一次大文件预览阻塞整个服务；
       // 上限按 base64 膨胀后的体积给，见 REMOTE_B64_STDOUT_BYTES。
       const wr = wslPath(targetPath) || targetPath;
-      const r = await wslExec('base64 -w0 ' + wslShellPath(wr) + ' 2>/dev/null', 30000, REMOTE_B64_STDOUT_BYTES);
-      if (r.code !== 0 || !r.stdout) return res.status(404).json({ error: '读不到文件（不存在或无权限）' });
+      const r = await wslExec('base64 < ' + wslShellPath(wr), 30000, REMOTE_B64_STDOUT_BYTES);
+      if (r.code !== 0) { const failure = remotePreviewError(Object.assign(new Error(r.stderr || ''), { remoteExitCode:r.code }), targetPath); return res.status(failure.status).json(failure); }
       buf = Buffer.from(r.stdout.replace(/\s/g, ''), 'base64');
     } else if (host && host !== 'local') {
       const cfg = ssh.getHostCfg(host);
@@ -3027,14 +3366,16 @@ app.get('/api/fs/raw', async (req, res) => {
       const command = platform === 'windows'
         ? ssh.windowsPowerShellCommand([
           "$ErrorActionPreference = 'Stop'",
-          '[Convert]::ToBase64String([IO.File]::ReadAllBytes(' + ssh.windowsPowerShellLiteral(targetPath) + '))',
+          'try { [Convert]::ToBase64String([IO.File]::ReadAllBytes(' + ssh.windowsPowerShellLiteral(targetPath) + ')) } catch { $reason = $_.Exception.GetBaseException(); $tag = if ($reason -is [IO.FileNotFoundException] -or $reason -is [IO.DirectoryNotFoundException]) { "AH_PREVIEW_MISSING" } elseif ($reason -is [UnauthorizedAccessException]) { "AH_PREVIEW_DENIED" } else { "AH_PREVIEW_FAILED" }; [Console]::Error.WriteLine($tag); exit 1 }',
         ].join('; '))
         // 不使用 GNU 专属的 `-w0`，也不把 base64 放进管道隐藏其失败码；
         // 输出换行由本机统一去掉，Linux、macOS、BSD 都能工作。
-        : 'base64 ' + wslShellPath(targetPath) + ' 2>/dev/null';
-      const result = await collectRemoteOutput(ssh.execStream(cfg, command, ''), 30000, REMOTE_B64_STDOUT_BYTES);
-      if (result.code !== 0) return res.status(404).json({ error: '读不到文件（不存在或无权限）' });
-      buf = Buffer.from(result.stdout.replace(/\s/g, ''), 'base64');
+        : 'base64 < ' + wslShellPath(targetPath);
+      try {
+        const result = await collectRemoteOutput(ssh.execStream(cfg, command, ''), 30000, REMOTE_B64_STDOUT_BYTES);
+        if (result.code !== 0) throw Object.assign(new Error(result.stderr || ''), { remoteExitCode:result.code });
+        buf = Buffer.from(result.stdout.replace(/\s/g, ''), 'base64');
+      } catch (error) { const failure = remotePreviewError(error, targetPath); return res.status(failure.status).json(failure); }
     } else {
       try {
         buf = await fs.promises.readFile(targetPath);
@@ -3043,7 +3384,7 @@ app.get('/api/fs/raw', async (req, res) => {
         throw e;
       }
     }
-    if (!buf || !buf.length) return res.status(404).json({ error: '文件为空或读取失败' });
+    if (!buf || !buf.length && !TEXT_EXT.test(p)) return res.status(404).json({ error: '文件为空或读取失败' });
     // 走到这里的只剩「必须整文件转 base64 内嵌」的路径（图片、远程文件），
     // 文本和文档/音频已在上面分流，不再受这个上限影响。
     if (buf.length > INLINE_B64_MAX_BYTES) return res.status(400).json({ error: '该文件只能整块内嵌预览（远程文件或 svg），超过 ' + Math.floor(INLINE_B64_MAX_BYTES / 1024 / 1024) + 'MB；本机的文本、图片、文档不受此限制' });
@@ -3404,7 +3745,7 @@ function destroyNativeBridge(sessionId, reason) {
   claudeBridge.destroySession(sessionId, reason);
   zcodeBridge.destroySession(sessionId, reason);
   codexBridge.destroySession(sessionId, reason);
-  // ACP 连接也按 AgentHub 会话归属回收；否则删除/回退后，外部 ACP
+  // ACP 连接也按 OrbitCell 会话归属回收；否则删除/回退后，外部 ACP
   // 进程仍会长期驻留并保留旧的工作目录与会话状态。
   try { if (typeof acp !== 'undefined' && acp) acp.destroySession(sessionId, reason); } catch {}
 }
@@ -3415,6 +3756,7 @@ function destroyNativeBridge(sessionId, reason) {
 app.post('/api/sessions/:id/fork', async (req, res) => {
   const s = sessionsStore.data.sessions.find(x => x.id === req.params.id);
   if (!s) return res.status(404).json({ error: '会话不存在' });
+  if (!agentCenter.isEnabled(settings.data, s.agent)) return res.status(409).json({ error: '此 Agent 已停用，启用后可创建新任务。历史会话仍可使用。' });
   if (running.has(s.id)) return res.status(400).json({ error: '会话正在运行中' });
   const idx = messageIndexForAction(s.messages, req.body);
   if (idx < 0) return res.status(404).json({ error: '找不到分叉点' });
@@ -3423,6 +3765,8 @@ app.post('/api/sessions/:id/fork', async (req, res) => {
     id: 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
     agent: s.agent, title: (s.title || '会话') + ' · 分叉', model: s.model || '', providerId: s.providerId || '',
     remoteHostId: s.remoteHostId || '', cwd: s.cwd || '', autoPerms: !!s.autoPerms, permMode: s.permMode || '', effort: s.effort || '',
+    ...(s.agent==='dsh'?{dshPermission:s.dshPermission||'default'}:{}),
+    ...(s.acpMode?{acpMode:s.acpMode}:{}),...(isRecord(s.acpConfig)?{acpConfig:{...s.acpConfig}}:{}),
     titled: true, pinned: false, cliSessionId: '', cliSessionStartTs: 0, createdAt: Date.now(), updatedAt: Date.now(),
     messages: JSON.parse(JSON.stringify(copied)),
   };
@@ -3536,8 +3880,9 @@ app.get('/api/fs/ls', async (req, res) => {
       if (!wslHomeCache.value) {
         try {
           const h = await wslExec('echo -n $HOME', 20000);
-          wslHomeCache.value = (h.stdout || '').trim() || '/root';
-        } catch {}
+          if(h.code!==0||!(h.stdout||'').trim().startsWith('/'))throw new Error('WSL 主目录探测失败');
+          wslHomeCache.value = h.stdout.trim();
+        } catch { return res.status(502).json({error:'无法连接 WSL 文件系统，请检查发行版是否可用后重试'}); }
       }
       return res.json({ root: true, dirs: [
         { name: '/（WSL 根目录）', path: '/', drive: true },
@@ -3548,8 +3893,9 @@ app.get('/api/fs/ls', async (req, res) => {
       if (rp === '~' && !wslHomeCache.value) {
         try {
           const h = await wslExec('echo -n $HOME', 20000);
-          wslHomeCache.value = (h.stdout || '').trim() || '/root';
-        } catch {}
+          if(h.code!==0||!(h.stdout||'').trim().startsWith('/'))throw new Error('WSL 主目录探测失败');
+          wslHomeCache.value = h.stdout.trim();
+        } catch { return res.status(502).json({error:'无法连接 WSL 主目录，请检查发行版是否可用后重试'}); }
       }
       const wr = rp === '~' ? rp : (wslPath(rp) || rp);
       const raw = wslShellPath(wr);
@@ -3604,8 +3950,20 @@ app.get('/api/fs/ls', async (req, res) => {
 
 // ---------- 设置 / agents ----------
 app.get('/api/agents', async (req, res) => {
-  res.json(await agents.detectAgentsCached(settings.data));
+  res.json((await agents.detectAgentsCached(settings.data)).map(agent => ({...agent,sharedModels:require('./lib/model-access').supportsShared(agent.id,settings.data)})));
 });
+require('./lib/agent-models').mount(app, { agents, settings, sessions: () => sessionsStore.data.sessions });
+require('./lib/model-access').mount(app, { agents, settings, provider: findProvider, knownAgent });
+require('./lib/project-center').mount(app, { sessions: () => sessionsStore.data.sessions, hosts: () => ssh.listHosts(), isRunning: id => running.has(id),
+  compatibleAgent: (id, hostId) => !hostId || !['builtin','chatgpt-web'].includes(id) && !(settings.data.customAgents || []).find(agent => agent.id === id)?.acp,
+  validAgent: id => typeof id === 'string' && !['__proto__','constructor','prototype'].includes(id) && (Object.hasOwn(agents.DEFS, id) || (settings.data.customAgents || []).some(agent => agent.id === id)) });
+agentCenter.mount(app, { agents, settings, ssh, provider: findProvider, providers: allProviders, fits: providerFitsAgent, efforts: EFFORT_LEVELS,
+  toolCounts: detected => Object.fromEntries(detected.map(item => {
+    const agent = item.id, servers = mcpServers.enabledFor(item.acp || agent.startsWith('acp:') ? 'acp' : agent);
+    return [agent, { servers: servers.length, tools: servers.reduce((count, server) => count + (server.lastTest?.ok ? Number(server.lastTest.count) || 0 : 0), 0),
+      untested: servers.filter(server => !server.lastTest?.ok).length,
+      injected: mcpTools.TOOLS.filter(tool => !(settings.data.mcpDisabledTools || []).includes(tool.name) && !tool.name.startsWith('browser_')).length }];
+  })) });
 // 前端启动时探测自身权限级别：只读令牌进入时隐藏发送/终端/审批等写操作
 app.get('/api/meta', (req, res) => {
   res.json({ readonly: req.readOnly === true, version: require('./package.json').version || '' });
@@ -3644,10 +4002,10 @@ app.get('/api/quota', async (req, res) => {
   const providerId = typeof req.query.providerId === 'string' ? req.query.providerId : '';
   try {
     if (providerId) {
-      const r = await quota.one(providerStore.data.list, providerId, force);
+      const r = await quota.one(allProviders(), providerId, force);
       return res.json(r.item ? { item: withManualLimits(r.item), ts: r.ts } : { item: null, error: '供应商不存在' });
     }
-    const all = await quota.all(providerStore.data.list, force);
+    const all = await quota.all(allProviders(), force);
     for (const item of (all && all.items) || []) withManualLimits(item);
     res.json(all);
   } catch (e) {
@@ -3663,7 +4021,7 @@ function resolveLocalGitDir(raw) {
   const expanded = expandLocalPath(String(raw || '').slice(0, 2048)).trim();
   if (!expanded) return null;
   // 必须是绝对路径。相对路径（`lib`、`..`）会被 statSync/execFile 按 process.cwd()
-  // 解析，而那是 AgentHub 自己的安装目录——Git 面板和提交/快照就会去操作本仓库
+  // 解析，而那是 OrbitCell 自己的安装目录——Git 面板和提交/快照就会去操作本仓库
   // （D5：绝不能用 process.cwd() 当工作目录）。宁可直接拒绝。
   if (!path.isAbsolute(expanded)) return null;
   const p = path.resolve(expanded);
@@ -3850,7 +4208,7 @@ app.post('/api/git/suggest-commit', async (req, res) => {
     else if (ev.kind === 'error' && typeof ev.text === 'string') errText = ev.text;
   };
   try {
-    const handle = apiAgent.runApiChat({ prompt: parts.join('\n'), model, provider, history: [], images: [], sessionKey: 'git-suggest' }, emit);
+    const handle = apiAgent.runApiChat({ prompt: parts.join('\n'), model, provider, history: [], images: [], webAccess: false, sessionKey: 'git-suggest' }, emit);
     await handle.done;
   } catch (e) {
     return res.json({ ok: false, error: '生成失败：' + (e.message || '未知错误') });
@@ -3932,6 +4290,7 @@ app.put('/api/project-defaults', (req, res) => {
   if (b.clear === true) { delete settings.data.projectDefaults[cwd]; settings.save(); return res.json({ ok: true, cleared: true }); }
   const v = {
     permMode: typeof b.permMode === 'string' && PERM_MODES.includes(b.permMode) ? b.permMode : '',
+    ...(require('./lib/agent-models').DSH_PERMISSIONS.includes(b.dshPermission)?{dshPermission:b.dshPermission}:{}),
     providerId: typeof b.providerId === 'string' ? b.providerId.trim().slice(0, 256) : '',
     model: typeof b.model === 'string' ? b.model.trim().slice(0, 256) : '',
     effort: typeof b.effort === 'string' && EFFORT_LEVELS.includes(b.effort) ? b.effort : '',
@@ -3955,6 +4314,7 @@ app.post('/api/project-profiles', (req, res) => {
     cwd: expandLocalPath(String(b.cwd || '').trim().slice(0, 4096)),
     description: String(b.description || '').trim().slice(0, 400),
     permMode: typeof b.permMode === 'string' && PERM_MODES.includes(b.permMode) ? b.permMode : '',
+    ...(require('./lib/agent-models').DSH_PERMISSIONS.includes(b.dshPermission)?{dshPermission:b.dshPermission}:{}),
     providerId: String(b.providerId || '').trim().slice(0, 256),
     model: String(b.model || '').trim().slice(0, 256),
     effort: typeof b.effort === 'string' && EFFORT_LEVELS.includes(b.effort) ? b.effort : '',
@@ -4062,10 +4422,15 @@ app.get('/api/health', (req, res) => {
     sshRecovery: { channelOpenTimeoutMs: ssh.CHANNEL_OPEN_TIMEOUT_MS },
     usageCapture: { version:3, nativePassthrough:true, contextComposition:'estimated-payload', cacheWriteDetails:true },
     sessionConfig: { nextModel:true, asyncLocalRoots:true },
+    conversationTimeline: { version:4, itemMessages:true, questionRecords:true, planProgress:true, fileOperationCounts:true, permissionReceipts:true, permissionAudit:true, resultTextFallback:true },
     commandMonitor: { background:true, terminals:true },
     resourceMonitor: { version:3, demandDriven:true, ssh:true, intervalMs:2000, fastFirstSample:true },
     gitStatus: { version:1, remoteLineStats:true },
     cliRuntime: { version:2, sessionModelAliases:true, stderrDiagnostics:true, nvmFallback:true },
+    capabilityManagement: { version:1, remoteInventory:true, nativeMcpEditing:true },
+    ordinaryChat: { version:2, webTools:true, repeatedCallReuse:true, failureHandoff:true, configurableResearch:true },
+    workspaceBrowser: { version:2, multiplePages:true, responsiveViewport:true },
+    projectManagement: { version:1, hostScoped:true, agentGroups:true },
     uptime: Math.round(process.uptime()),
     running: running.size,
     sessions: sessionsStore.data.sessions.length,
@@ -4175,7 +4540,7 @@ app.get('/api/backup', async (req, res) => {
     const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE', compressionOptions: { level: 6 } });
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
     res.setHeader('Content-Type', 'application/zip');
-    res.setHeader('Content-Disposition', 'attachment; filename="agenthub-backup-' + stamp + '.zip"');
+    res.setHeader('Content-Disposition', 'attachment; filename="orbitcell-backup-' + stamp + '.zip"');
     res.send(buf);
   } catch (e) {
     res.status(500).json({ error: '备份失败: ' + e.message });
@@ -4263,9 +4628,9 @@ function assistantPromptFor(session) {
   try { return assistants.promptForSession(session); } catch (e) { console.error('[assistants] prompt:', e.message); return ''; }
 }
 async function runtimePromptFor(session, prompt) {
-  const skills = await require('./lib/skills').prepare(session, settings.data.disabledSkills || [], prompt);
+  const skills = await require('./lib/skills').prepare(session, disabledSkillsFor(session.agent), prompt);
   require('./lib/agent-runtime').update(session.id, { skillSnapshot: skills.skills, skillHash: skills.hash, assistantDelivery: ['builtin', 'claude', 'codex'].includes(session.agent) ? 'native' : 'context' });
-  return { systemPrompt: [assistantPromptFor(session), skills.prompt, session.portableContext || '', require('./lib/task-board').context(session.id)].filter(Boolean).join('\n\n'), nativeSkillPolicy: skills.nativePolicy };
+  return { systemPrompt: [assistantPromptFor(session), skills.prompt, session.portableContext || '', require('./lib/task-board').context(session.id), require('./lib/plan-progress').promptFor(session)].filter(Boolean).join('\n\n'), nativeSkillPolicy: skills.nativePolicy };
 }
 app.get('/api/sessions/:id/runtime', (req, res) => {
   const session = sessionsStore.data.sessions.find(s => s.id === req.params.id);
@@ -4585,7 +4950,7 @@ app.get('/api/db/status', (req, res) => {
   res.json({ ...status, eventsDir: path.join(DATA_DIR, 'events') });
 });
 app.post('/api/db/rebuild', (req, res) => {
-  if (restoreState) return res.status(409).json({ error: '数据恢复中，请重启 AgentHub 后再操作', restartRequired: true });
+  if (restoreState) return res.status(409).json({ error: '数据恢复中，请重启 OrbitCell 后再操作', restartRequired: true });
   const r = db.rebuildFromSources({
     sessions: sessionsStore.data.sessions,
     usageRecords: (usage.usageStore && usage.usageStore.data && usage.usageStore.data.records) || [],
@@ -4740,6 +5105,19 @@ app.put('/api/settings', (req, res) => {
       clean.agentRoutes[agent] = { providerId: providerId.slice(0, 256), model: String(route.model || '').trim().slice(0, 256), effort: route.effort || '' };
     }
   }
+  if (has('modelDefaults')) {
+    if (!isRecord(body.modelDefaults)) return invalid('全局模型默认格式无效');
+    const providerId = String(body.modelDefaults.providerId || '').trim().slice(0, 256);
+    const model = String(body.modelDefaults.model || '').trim().slice(0, 256);
+    const effort = String(body.modelDefaults.effort || '').trim().toLowerCase();
+    if (effort && !EFFORT_LEVELS.includes(effort)) return invalid('全局默认推理强度无效');
+    if (providerId) {
+      const p = findProvider(providerId);
+      if (!p) return invalid('全局默认供应商不存在');
+      if (p.scope === 'agent' || p.shared === false) return invalid('全局默认必须使用共享连接');
+    }
+    clean.modelDefaults = { providerId, model, effort };
+  }
   if (has('sound')) {
     if (typeof body.sound !== 'boolean') return invalid('提示音设置必须是布尔值');
     clean.sound = body.sound;
@@ -4803,6 +5181,7 @@ app.put('/api/settings', (req, res) => {
         cwd: typeof p.cwd === 'string' ? p.cwd.trim().slice(0, 4096) : '',
         description: typeof p.description === 'string' ? p.description.trim().slice(0, 400) : '',
         permMode: typeof p.permMode === 'string' && PERM_MODES.includes(p.permMode) ? p.permMode : '',
+    ...(require('./lib/agent-models').DSH_PERMISSIONS.includes(p.dshPermission)?{dshPermission:p.dshPermission}:{}),
         providerId: typeof p.providerId === 'string' ? p.providerId.trim().slice(0, 256) : '',
         model: typeof p.model === 'string' ? p.model.trim().slice(0, 256) : '',
         effort: typeof p.effort === 'string' && EFFORT_LEVELS.includes(p.effort) ? p.effort : '',
@@ -4832,6 +5211,7 @@ app.put('/api/settings', (req, res) => {
   if (has('agents')) { settings.data.agents = clean.agents; agents.clearNativeRouteCache(); }
   if (has('currentProvider')) settings.data.currentProvider = clean.currentProvider;
   if (has('agentRoutes')) settings.data.agentRoutes = clean.agentRoutes;
+  if (has('modelDefaults')) settings.data.modelDefaults = clean.modelDefaults;
   if (has('sound')) settings.data.sound = clean.sound;
   if (has('mcpTools')) settings.data.mcpTools = body.mcpTools !== false;
   // 回合无进展看门狗（分钟）：0=关闭，1–720 有效范围
@@ -4919,7 +5299,7 @@ app.put('/api/settings', (req, res) => {
 });
 app.get('/api/ccswitch', (req, res) => {
   // B11：数据库被占用/不可读时把错误透给前端，界面能提示而不是静默空列表
-  res.json({ dir: ccswitch.CC_DIR, db: ccswitch.dbPath(), error: ccswitch.lastError || '' });
+  res.json({ enabled:ccswitch.enabled, source:'OrbitCell', dir:ccswitch.enabled?ccswitch.CC_DIR:'', db:ccswitch.dbPath(), error:ccswitch.lastError||'' });
 });
 
 // ---------- WSL 检测 ----------
@@ -5126,12 +5506,16 @@ app.post('/api/sessions', (req, res) => {
   if (cwd != null && typeof cwd !== 'string') return res.status(400).json({ error: '工作目录格式无效' });
   if (body.autoPerms != null && typeof body.autoPerms !== 'boolean') return res.status(400).json({ error: 'autoPerms 必须是布尔值' });
   if (body.permMode != null && typeof body.permMode !== 'string') return res.status(400).json({ error: '权限模式格式无效' });
+  if(body.dshPermission!=null&&(agent!=='dsh'||!require('./lib/agent-models').DSH_PERMISSIONS.includes(body.dshPermission)))return res.status(400).json({error:'DSH 权限预设无效'});
   if (body.effort != null && typeof body.effort !== 'string') return res.status(400).json({ error: '推理强度格式无效' });
+  if(body.acpMode!=null&&(typeof body.acpMode!=='string'||body.acpMode.length>128))return res.status(400).json({error:'ACP 模式无效'});
+  if(body.acpConfig!=null&&(!isRecord(body.acpConfig)||Object.keys(body.acpConfig).length>32||Object.keys(body.acpConfig).some(key=>['__proto__','prototype','constructor'].includes(key))||Object.values(body.acpConfig).some(value=>typeof value!=='string'||value.length>512)))return res.status(400).json({error:'ACP 配置无效'});
   const agentId = agent.trim().slice(0, 128);
   const providerKey = String(providerId || '').trim().slice(0, 256);
   const remoteKey = String(remoteHostId || '').trim().slice(0, 256);
   const cwdText = String(cwd || '').trim().slice(0, 4096);
   if (!knownAgent(agentId)) return res.status(400).json({ error: '未知 Agent：' + agentId });
+  if (!agentCenter.isEnabled(settings.data, agentId)) return res.status(409).json({ error: '此 Agent 已停用，请在 Agent 管理中启用后创建新任务。' });
   if (!validRemoteHost(remoteKey)) return res.status(404).json({ error: '远程主机不存在' });
   const chosenProvider = providerKey ? findProvider(providerKey) : null;
   if (providerKey && !chosenProvider) return res.status(404).json({ error: '供应商不存在' });
@@ -5140,16 +5524,18 @@ app.post('/api/sessions', (req, res) => {
   if (body.effort && !EFFORT_LEVELS.includes(body.effort)) return res.status(400).json({ error: '推理强度无效' });
   const hasBodyMode = Object.prototype.hasOwnProperty.call(body, 'permMode');
   const hasBodyAuto = Object.prototype.hasOwnProperty.call(body, 'autoPerms');
+  const savedRoute = agentCenter.routeDefaults(settings.data, agentId, remoteKey);
+  const defaultMode = savedRoute.permMode || '';
   const permission = normalizePermissionState(
-    hasBodyAuto ? body.autoPerms : (hasBodyMode && body.permMode === 'auto'),
-    hasBodyMode ? body.permMode : '',
+    hasBodyAuto ? body.autoPerms : (hasBodyMode ? body.permMode === 'auto' : defaultMode === 'auto'),
+    hasBodyMode ? body.permMode : defaultMode,
   );
   // 新会话未显式传入推理强度时，继承所选（或系统默认）供应商的默认值。
   // 保存到会话后，发送栏仍可单独覆盖，不会反向修改供应商配置。
-  const defaultProvider = chosenProvider || (!providerKey ? defaultProviderForAgent(agentId) : null);
-  const savedRoute = settings.data.agentRoutes?.[agentId] || {};
+  const defaultProvider = chosenProvider || (!providerKey ? (savedRoute.providerId ? findProvider(savedRoute.providerId) : defaultProviderForAgent(agentId)) : null);
   const routeDefaults = !providerKey || providerKey === savedRoute.providerId ? savedRoute : {};
-  const effort = body.effort || routeDefaults.effort || (defaultProvider && defaultProvider.effort) || '';
+  const explicitEffort=Object.prototype.hasOwnProperty.call(body,'effort');
+  const effort = explicitEffort ? body.effort : routeDefaults.effort || (defaultProvider && defaultProvider.effort) || '';
   // 助手（可选）：绑定后系统提示词按 Agent 能力注入，未指定的运行参数取助手默认值。
   // 显式传参优先于助手默认值——助手是「默认值」，不是覆盖用户选择的强制项。
   const assistantId = String(body.assistantId || '').trim().slice(0, 128);
@@ -5160,7 +5546,7 @@ app.post('/api/sessions', (req, res) => {
   const resolvedProvider = providerFinal ? (chosenProvider || findProvider(providerFinal)) : null;
   if (providerFinal && !resolvedProvider) return res.status(404).json({ error: '供应商不存在' });
   if (providerFinal && !providerFitsAgent(agentId, resolvedProvider)) return res.status(400).json({ error: '该供应商不适用于当前 Agent' });
-  const effortFinal = effort || assistantDefaults.effort || '';
+  const effortFinal = explicitEffort ? effort : effort || assistantDefaults.effort || '';
   if (effortFinal && !EFFORT_LEVELS.includes(effortFinal)) return res.status(400).json({ error: '助手默认推理强度无效' });
   const assistantPerm = assistantDefaults.permMode && PERM_MODES.includes(assistantDefaults.permMode) ? assistantDefaults.permMode : '';
   const permissionFinal = (!hasBodyMode && !hasBodyAuto && assistantPerm)
@@ -5168,6 +5554,8 @@ app.post('/api/sessions', (req, res) => {
     : permission;
   const s = {
     id: 's' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6),
+    ...(agentId==='dsh'?{dshPermission:body.dshPermission||savedRoute.dshPermission||'default'}:{}),
+    ...(body.acpConfig||routeDefaults.acpConfig?{acpConfig:body.acpConfig||routeDefaults.acpConfig}:{}),...(Object.hasOwn(body,'acpMode')||routeDefaults.acpMode?{acpMode:Object.hasOwn(body,'acpMode')?body.acpMode:routeDefaults.acpMode}:{}),
     agent: agentId, title: String(title || '新会话').trim().slice(0, 200) || '新会话',
     model: String(model || assistantDefaults.model || routeDefaults.model || defaultProvider?.model || '').trim().slice(0, 256), providerId: providerFinal,
     remoteHostId: remoteKey, cwd: cwdText, autoPerms: permissionFinal.autoPerms, permMode: permissionFinal.permMode,
@@ -5183,7 +5571,7 @@ app.post('/api/sessions', (req, res) => {
 app.patch('/api/sessions/:id', (req, res) => {
   const s = sessionsStore.data.sessions.find(x => x.id === req.params.id);
   if (!s) return res.status(404).json({ error: '会话不存在' });
-  const allow = ['title', 'model', 'nextModel', 'providerId', 'remoteHostId', 'cwd', 'autoPerms', 'permMode', 'effort', 'titled', 'pinned', 'pinnedAt', 'unread', 'snoozedUntil', 'settledAt', 'assistantId', 'skillSelection', 'acpMode', 'acpConfig'];
+  const allow = ['title', 'model', 'nextModel', 'providerId', 'remoteHostId', 'cwd', 'autoPerms', 'permMode', 'dshPermission', 'effort', 'titled', 'pinned', 'pinnedAt', 'unread', 'snoozedUntil', 'settledAt', 'assistantId', 'skillSelection', 'acpMode', 'acpConfig'];
   const body = req.body;
   if (!isRecord(body)) return res.status(400).json({ error: '会话设置格式无效' });
   if ('agent' in body && body.agent !== s.agent) return res.status(400).json({ error: '会话 Agent 不可更换，请新建会话' });
@@ -5205,7 +5593,7 @@ app.patch('/api/sessions/:id', (req, res) => {
   try {
     if ('skillSelection' in normalized) normalized.skillSelection = require('./lib/skills').selection(normalized.skillSelection);
     if ('acpMode' in normalized && (typeof normalized.acpMode !== 'string' || normalized.acpMode.length > 128)) throw new Error('ACP 模式无效');
-    if ('acpConfig' in normalized && (!isRecord(normalized.acpConfig) || Object.keys(normalized.acpConfig).length > 32 || Object.values(normalized.acpConfig).some(v => typeof v !== 'string' || v.length > 512))) throw new Error('ACP 配置无效');
+    if ('acpConfig' in normalized && (!isRecord(normalized.acpConfig) || Object.keys(normalized.acpConfig).length > 32 || Object.keys(normalized.acpConfig).some(key=>['__proto__','prototype','constructor'].includes(key)) || Object.values(normalized.acpConfig).some(v => typeof v !== 'string' || v.length > 512))) throw new Error('ACP 配置无效');
     if (running.has(s.id) && ['skillSelection', 'acpMode', 'acpConfig'].some(k => k in normalized)) return res.status(409).json({ error: '请在当前回合结束后修改运行配置' });
   } catch (e) { return res.status(400).json({ error: e.message }); }
   if ('title' in normalized) normalized.title = String(normalized.title == null ? '' : normalized.title).trim().slice(0, 200);
@@ -5228,6 +5616,7 @@ app.patch('/api/sessions/:id', (req, res) => {
   }
   if ('remoteHostId' in normalized && !validRemoteHost(normalized.remoteHostId)) return res.status(404).json({ error: '远程主机不存在' });
   if ('permMode' in normalized && normalized.permMode && !PERM_MODES.includes(normalized.permMode)) return res.status(400).json({ error: '权限模式无效' });
+  if('dshPermission' in normalized&&(s.agent!=='dsh'||!require('./lib/agent-models').DSH_PERMISSIONS.includes(normalized.dshPermission)))return res.status(400).json({error:'DSH 权限预设无效'});
   if ('effort' in normalized && normalized.effort && !EFFORT_LEVELS.includes(normalized.effort)) return res.status(400).json({ error: '推理强度无效' });
   if (Object.prototype.hasOwnProperty.call(normalized, 'permMode') || Object.prototype.hasOwnProperty.call(normalized, 'autoPerms')) {
     const hasMode = Object.prototype.hasOwnProperty.call(normalized, 'permMode');
@@ -5244,7 +5633,7 @@ app.patch('/api/sessions/:id', (req, res) => {
   }
   // 运行中的原生会话已经把 cwd/主机/模型/供应商等配置绑定到当前
   // 回合；允许此时修改会让网页显示的设置与 CLI 实际使用的设置分叉。
-  const runLockedKeys = ['model', 'providerId', 'remoteHostId', 'cwd', 'autoPerms', 'permMode', 'effort'];
+  const runLockedKeys = ['model', 'providerId', 'remoteHostId', 'cwd', 'autoPerms', 'permMode', 'dshPermission', 'effort'];
   if (running.has(s.id) && runLockedKeys.some(k => Object.prototype.hasOwnProperty.call(normalized, k))) {
     return res.status(409).json({ error: '会话正在运行中，暂不能修改运行配置' });
   }
@@ -5419,7 +5808,7 @@ function wslShellPath(p) {
 }
 
 // 工作目录是会话语义的一部分：如果用户选择的目录已经被移动、删除或
-// 远程不可用，不能让各个 CLI 入口自行回退到 AgentHub 进程目录。
+// 远程不可用，不能让各个 CLI 入口自行回退到 OrbitCell 进程目录。
 async function validateWorkspaceForSession(s, remoteCfg) {
   const cwd = String((s && s.cwd) || '').trim();
   if (!cwd) return;
@@ -5735,7 +6124,7 @@ function permissionSession(sessionId) {
   return sessionsStore.data.sessions.find(s => s && s.id === String(sessionId || '')) || null;
 }
 function pendingPermissionCard(sessionId, pid) {
-  const key = String(pid || '');
+  const key = String(pid ?? '');
   const api = apiAgent.pendingPermissions(sessionId).find(card => String(card && card.pid || '') === key);
   if (api) return api;
   const acpCard = acp.pendingFor(sessionId).find(card => String(card && card.pid || '') === key);
@@ -5746,7 +6135,7 @@ function pendingPermissionCard(sessionId, pid) {
   if (codexCard) return codexCard;
   const claude = claudeBridge.getSession(sessionId);
   const native = claude && claude.pendingPerms && claude.pendingPerms.get(key);
-  if (native && native.request) return { tool: native.request.tool_name || '', question: native.request.tool_name === 'AskUserQuestion', pid: key };
+  if (native && native.request) return { tool: native.request.tool_name || '', question: native.request.tool_name === 'AskUserQuestion', pid: key, input: native.request.input || {}, suggestions: native.request.permission_suggestions || [] };
   return null;
 }
 function rememberPermissionFromBody(sessionId, card, body) {
@@ -5763,6 +6152,7 @@ function rememberPermissionFromBody(sessionId, card, body) {
   const session = permissionSession(sessionId);
   const tool = card.tool || '';
   if (!session || !tool) return { remembered: false, warning: '该审批没有可记忆的工具标识' };
+  if (!agentCenter.featureEnabled(settings.data, session.agent, 'permissionMemory')) return { remembered: false, warning: '此 Agent 已关闭项目权限记忆，本次仍按所选操作处理。' };
   const result = permissionMemory.remember(session, tool);
   return result.ok
     ? { remembered: true, project: result.project, tool: result.tool }
@@ -5770,6 +6160,7 @@ function rememberPermissionFromBody(sessionId, card, body) {
 }
 function autoApproveRememberedPermission(session, ev) {
   if (!session || !ev || ev.question === true || !ev.tool || !ev.pid) return false;
+  if (!agentCenter.featureEnabled(settings.data, session.agent, 'permissionMemory')) return false;
   if (!permissionMemory.allows(session, ev.tool)) return false;
   const sessionId = String(session.id || '');
   let result = false;
@@ -5803,7 +6194,9 @@ app.post('/api/acp/respond', (req, res) => {
   const card = pendingPermissionCard(agentId, pid);
   const ok = acp.respondPermission(agentId, pid, optionId);
   if (!ok) return res.status(404).json({ ok: false, error: '该 ACP 审批请求不存在或已失效' });
-  res.json({ ok: true, ...rememberPermissionFromBody(agentId, card, req.body) });
+  const memory = rememberPermissionFromBody(agentId, card, req.body);
+  running.get(agentId)?.recordPermission?.(permissionAudit.fromReply(card, req.body, memory));
+  res.json({ ok: true, ...memory });
 });
 
 // ---------- 内置 Agent 工具权限审批响应 ----------
@@ -5818,7 +6211,9 @@ app.post('/api/api-agent/respond', (req, res) => {
   const card = pendingPermissionCard(sid, pid);
   const ok = apiAgent.respondPermission(sid, pid, action);
   if (!ok) return res.status(404).json({ ok: false, error: '该内置 Agent 审批请求不存在或已失效' });
-  res.json({ ok: true, ...rememberPermissionFromBody(sid, card, req.body) });
+  const memory = rememberPermissionFromBody(sid, card, req.body);
+  running.get(sid)?.recordPermission?.(permissionAudit.fromReply(card, req.body, memory));
+  res.json({ ok: true, ...memory });
 });
 
 // ---------- claude/zcode/codex 流式桥：权限/提问应答 ----------
@@ -5839,6 +6234,7 @@ app.post('/api/bridge/respond', (req, res) => {
   if (b.optionId != null && !['string', 'number'].includes(typeof b.optionId)) return res.status(400).json({ error: '选项 ID 格式无效' });
   for (const key of ['selections', 'notes', 'content']) if (b[key] != null && !isRecord(b[key])) return res.status(400).json({ error: key + ' 格式无效' });
   for (const key of ['freeText', 'denyMessage', 'reason']) if (b[key] != null && (typeof b[key] !== 'string' || b[key].length > 20000)) return res.status(400).json({ error: key + ' 格式无效' });
+  const replyRecord = { selections: b.selections, freeText: b.freeText, action: b.action, attachments: [] };
   // 提问卡附件（路径注入）：Claude/Codex 的提问协议不收附件二进制，但答案/注释
   // 会进模型上下文——把已保存文件的**本机路径**拼进去，agent 自行用工具读取。
   // 只接受 uploads 目录下真实存在的文件；已有答案时作为注释附加，避免覆盖选项。
@@ -5853,6 +6249,7 @@ app.post('/api/bridge/respond', (req, res) => {
       list.push({ path: resolved, name: (a && typeof a.name === 'string' ? a.name : path.basename(resolved)).slice(0, 120) });
     }
     if (list.length) {
+      replyRecord.attachments = list.map(a => a.name);
       const text = '[用户附件]\n' + list.map(a => '- ' + a.path + '（' + a.name + '）').join('\n');
       if (isRecord(b.notes) && Object.keys(b.notes).length) {
         const k = Object.keys(b.notes)[0];
@@ -5881,13 +6278,17 @@ app.post('/api/bridge/respond', (req, res) => {
   // 不能把桥接层的 {ok:false} 当成 HTTP 成功返回，否则前端会把审批卡
   // 永久锁死，用户也看不到“请求已失效/进程已回收”的错误。
   if (!result || result.ok === false) return res.status(409).json(result || { ok: false, error: '应答失败' });
-  res.json({ ...result, ...rememberPermissionFromBody(sessionId, card, b) });
+  const questionRecord = require('./lib/question-record').fromReply(card, replyRecord);
+  if (questionRecord) running.get(sessionId)?.recordQuestion?.(questionRecord);
+  const memory = rememberPermissionFromBody(sessionId, card, b);
+  running.get(sessionId)?.recordPermission?.(permissionAudit.fromReply(card, b, memory));
+  res.json({ ...result, ...memory });
 });
 app.get('/api/permissions/memory', (req, res) => {
   const sessionId = typeof req.query.sessionId === 'string' ? req.query.sessionId.trim() : '';
   const session = permissionSession(sessionId);
   if (!session) return res.status(404).json({ error: '会话不存在' });
-  res.json({ ok: true, project: permissionMemory.sessionProject(session), agent: session.agent || '', grants: permissionMemory.list(session) });
+  res.json({ ok: true, project: permissionMemory.sessionProject(session), agent: session.agent || '', enabled: agentCenter.featureEnabled(settings.data, session.agent, 'permissionMemory'), grants: permissionMemory.list(session) });
 });
 app.delete('/api/permissions/memory', (req, res) => {
   if (!isRecord(req.body)) return res.status(400).json({ error: '权限记忆请求格式无效' });
@@ -6136,7 +6537,7 @@ async function schedFire(t) {
   if (t.executionMode === 'new') {
     const tpl = t.sessionTemplate || {};
     // 新建会话模式要求模板里有可用的 Agent；没有就跳过并说明，不静默失败
-    if (!tpl.agent || !knownAgent(tpl.agent)) {
+    if (!tpl.agent || !knownAgent(tpl.agent) || !agentCenter.isEnabled(settings.data, tpl.agent)) {
       t.queuedAt = 0;
       schedAdvance(t, runAt, firedAt);
       schedRecordSkip(t, runAt, '跳过：新建会话模式缺少有效的 Agent 配置');
@@ -6315,6 +6716,7 @@ app.post('/api/scheduled', (req, res) => {
     if (!isRecord(sessionTemplate)) return res.status(400).json({ error: '新建会话模式需要 sessionTemplate（至少含 agent）' });
     const agent = String(sessionTemplate.agent || '').trim();
     if (!knownAgent(agent)) return res.status(400).json({ error: '未知 Agent：' + (agent || '(空)') });
+    if (!agentCenter.isEnabled(settings.data, agent)) return res.status(409).json({ error: '此 Agent 已停用，无法安排新任务' });
     if (!supportsManagedPermissions(agent)) return res.status(400).json({ error: '该 Agent 没有统一自动权限控制，无法无人值守运行' });
     const tplRemote = String(sessionTemplate.remoteHostId || '').trim();
     if (!validRemoteHost(tplRemote)) return res.status(404).json({ error: '远程主机不存在' });
@@ -6563,10 +6965,11 @@ const running = new Map(); // sessionId -> {cancel}
 const liveWs = new Set();
 
 const developmentWorkflows = require('./lib/development-workflows')(app, {
-  sessions: sessionsStore, running, knownAgent, findProvider,
+  sessions: sessionsStore, running, knownAgent: agent => knownAgent(agent) && agentCenter.isEnabled(settings.data, agent), findProvider,
   providerFits: (agent, provider) => !!provider && providerFitsAgent(agent, provider),
   broadcast: broadcastSystem, chat: handleChat, destroyBridge: destroyNativeBridge, receipts,
   disabledTools: () => settings.data.mcpDisabledTools,
+  toolEnabled: session => agentCenter.featureEnabled(settings.data, session.agent, 'agenthubTools'),
 });
 require('./lib/project-jobs').mount(app, { resolve: resolveLocalGitDir, changed: job => broadcastSystem({ type: 'project-job.changed', job }) });
 require('./lib/event-triggers').mount(app, { session: findSession, changed: () => broadcastSystem({ type: 'event-triggers.changed' }) });
@@ -6703,7 +7106,7 @@ app.get('/api/inbox', (req, res) => {
 });
 
 // CLI 子进程管理：枚举各常驻桥池里的真实子进程（pid/归属/忙闲），卡死的 CLI
-// 可以在这里强杀，不用整个重启 AgentHub。只读令牌不可见（属管理操作）。
+// 可以在这里强杀，不用整个重启 OrbitCell。只读令牌不可见（属管理操作）。
 const PROCESS_BRIDGES = [
   { id: 'claude', list: () => claudeBridge.listProcesses(), destroy: key => claudeBridge.destroySession(key, 'process-kill') },
   { id: 'codex', list: () => codexBridge.listProcesses(), destroy: key => codexBridge.destroySession(key, 'process-kill') },
@@ -6822,7 +7225,7 @@ wss.on('connection', (ws, req) => {
   ws.on('message', async (raw) => {
     let msg; try { msg = JSON.parse(raw); } catch { return; }
     if (!isRecord(msg) || typeof msg.type !== 'string' || msg.type.length > 64) return;
-    if (restoreState && !RO_WS_TYPES.has(msg.type)) return send(ws, { type: 'denied', op: msg.type, error: '恢复备份后请重启 AgentHub' });
+    if (restoreState && !RO_WS_TYPES.has(msg.type)) return send(ws, { type: 'denied', op: msg.type, error: '恢复备份后请重启 OrbitCell' });
     // 只读令牌的 WS 防线：HTTP 403 之外，聊天/终端输入在 WS 层再挡一次。
     // 用白名单而不是黑名单——黑名单每加一种写操作都要记得回来补，漏一次就是
     // 只读令牌能写；白名单里只留纯本地状态的消息，新增类型默认拒绝。
@@ -6862,7 +7265,7 @@ wss.on('connection', (ws, req) => {
       else if (msg.type === 'chat.cancel') {
         if (typeof msg.sessionId !== 'string' || msg.sessionId.length > 256) return;
         const r = running.get(msg.sessionId);
-        if (r) { r.cancelled = true; r.cancel(); }
+        if (r) r.cancel();
       } else if (msg.type === 'term.open') {
         if (typeof msg.hostId !== 'string' || msg.hostId.length < 1 || msg.hostId.length > 256) return;
         // 每连接 pty 数量上限：失控的客户端不能用任意 key 无限攒终端进程
@@ -7083,12 +7486,13 @@ async function handleChatUnsafe(ws, msg) {
   const startupCancelled = new Promise((_, reject) => { cancelStartup = () => reject(new Error('本轮已取消')); });
   startupCancelled.catch(() => {});
   const awaitStartup = work => Promise.race([work, startupCancelled]);
+  const chatEvent = ev => send(ws, { type: 'chat.event', sessionId: s.id, ...clientMeta, ev });
   const runSlot = {
     cancelled: false,
     handle: null,
     startedAt: Date.now(),
     commands: new Map(),
-    cancel() { this.cancelled = true; cancelStartup(); try { this.handle && this.handle.cancel && this.handle.cancel(); } catch {} },
+    cancel() { if (this.cancelled) return; this.cancelled = true; chatEvent({kind:'status',text:'正在停止…',stopping:true}); cancelStartup(); try { this.handle && this.handle.cancel && this.handle.cancel(); } catch {} },
   };
   running.set(s.id, runSlot);
 
@@ -7145,7 +7549,7 @@ async function handleChatUnsafe(ws, msg) {
     return { ok: false, error };
   };
 
-  // 内置 Agent 是运行在 AgentHub Node 进程里的 API Agent；它没有 WSL/SSH
+  // 内置 Agent 是运行在 OrbitCell Node 进程里的 API Agent；它没有 WSL/SSH
   // 入口。旧会话可能仍保存了远程位置，不能把那个远程路径拿来做本机 cwd。
   const builtinLocal = s.agent === 'builtin' || chatOnly;
   const customAgentCfg = Array.isArray(settings.data.customAgents)
@@ -7155,6 +7559,7 @@ async function handleChatUnsafe(ws, msg) {
   const localOnly = builtinLocal || acpLocal;
   const isWsl = !localOnly && s.remoteHostId === 'wsl';
   const remoteCfg = !localOnly && s.remoteHostId && !isWsl ? ssh.getHostCfg(s.remoteHostId) : null;
+  const executionSettings = agentCenter.runtimeSettings(settings.data, s.agent, localOnly ? '' : (s.remoteHostId || ''));
   let remotePlatform = '';
   if (remoteCfg) {
     send(ws, { type: 'chat.event', sessionId: s.id, ...clientMeta, ev: { kind: 'status', text: '正在连接远程主机 · ' + (remoteCfg.name || remoteCfg.host) + '…' } });
@@ -7196,7 +7601,7 @@ async function handleChatUnsafe(ws, msg) {
         agent: s.agent,
         wsl: isWsl,
         remote: remoteExec ? { label: remoteCfg.name, targetId: remoteCfg.id, platform: remotePlatform, exec: remoteExec } : null,
-        settings: settings.data,
+        settings: executionSettings,
         isCancelled: () => runSlot.cancelled,
        }, ev => send(ws, { type: 'chat.event', sessionId: s.id, ...clientMeta, ev })));
       nativeRemote = !!(route && route.native);
@@ -7257,7 +7662,7 @@ async function handleChatUnsafe(ws, msg) {
       if (remoteNotWsl) {
         send(ws, { type: 'chat.event', sessionId: s.id, ...clientMeta, ev: { kind: 'error', text: '远程 codex 会话暂不支持图片附件（图片在本机），已忽略图片' } });
       } else if (s.cliSessionId && !nativeRemote) {
-        const bin = agents.resolveBin('codex', (settings.data.agents || {}).codex || null);
+        const bin = agents.resolveBin('codex', (executionSettings.agents || {}).codex || null);
         if (!agents.codexResumeSupportsImage(bin)) {
           send(ws, { type: 'chat.event', sessionId: s.id, ...clientMeta, ev: { kind: 'status', text: '当前 codex 版本的 exec resume 不支持图片参数（需 0.153+），本轮图片已忽略' } });
         }
@@ -7294,13 +7699,14 @@ async function handleChatUnsafe(ws, msg) {
     }
   }
 
+  provider = require('./lib/model-access').effective(provider,s.agent,settings.data);
   const replayPrompt = contextReplay(s, prompt);
   // 首轮没有原生 id 时，直接使用回放；有 id 时先保持原始输入，只有
   // app-server/CLI 的原生 resume 明确失败后，桥才会使用 replayPrompt。
   if (!builtinLocal && !s.cliSessionId) prompt = replayPrompt;
 
-  const agentSettings = (settings.data.agents || {})[s.agent] || null;
-  const customCfg = customAgentCfg;
+  const agentSettings = (executionSettings.agents || {})[s.agent] || null;
+  const customCfg = agentCenter.runtimeCustom(customAgentCfg, executionSettings, s.agent, localOnly ? '' : (s.remoteHostId || ''));
 
   let assistant = null;
   let deltaBlock = null;
@@ -7351,11 +7757,37 @@ async function handleChatUnsafe(ws, msg) {
   const gatewayRequests = [], requestDetails = [];
   let resultUsage = null;
   let lastCtx = 0; // 最近一次 API 调用的上下文占用（顺序调用，最后一次即当前上下文规模）
+  // 部分兼容 CLI 会在极短时间内重复发送相同的 assistant 快照、工具
+  // 起始帧或工具结果。它们有时没有稳定的消息 ID，单靠各个 parser
+  // 无法去重；直接广播会把重复内容写进历史并让页面跳动。
+  // 只在当前回合内对完全相同的内容做短窗口去重，不按文字跨回合删除
+  // 合法回答；参数、状态、工具 ID 或下一回合变化都会正常通过。
+  const recentEventFingerprints = new Map();
+  const duplicateWindowMs = 220;
+  const duplicateKinds = new Set(['text', 'think', 'tool', 'tooloutput', 'image', 'files']);
+  const duplicateFingerprint = (kind, ev) => {
+    if (!duplicateKinds.has(kind)) return '';
+    const payload = { id: ev?.id ?? '', name: ev?.name ?? '', status: ev?.status ?? '', text: ev?.text ?? '', detail: ev?.detail ?? '', output: ev?.output ?? '', images: ev?.images ?? '', files: ev?.files ?? '' };
+    try { return kind + ':' + JSON.stringify(payload).slice(0, 24000); } catch { return ''; }
+  };
+  const isShortDuplicate = (kind, ev) => {
+    const fingerprint = duplicateFingerprint(kind, ev);
+    if (!fingerprint) return false;
+    // Repeated short text chunks can be legitimate model output (for example
+    // two adjacent punctuation or whitespace chunks). Only coalesce complete
+    // prose/thinking snapshots once they are long enough to be an unmistakable
+    // duplicate; tool/file events already carry stable IDs or payloads.
+    if ((kind === 'text' || kind === 'think') && String(ev?.text || '').trim().length < 24) return false;
+    const now = Date.now(), previous = recentEventFingerprints.get(fingerprint);
+    recentEventFingerprints.set(fingerprint, now);
+    if (recentEventFingerprints.size > 500) for (const [key, at] of recentEventFingerprints) if (now - at > duplicateWindowMs) recentEventFingerprints.delete(key);
+    return Number.isFinite(previous) && now - previous <= duplicateWindowMs;
+  };
 
-  const chatEvent = ev => send(ws, { type: 'chat.event', sessionId: s.id, ...clientMeta, ev });
   const emit = (ev) => {
     if (!isRecord(ev) || typeof ev.kind !== 'string') return;
     const kind = ev.kind.slice(0, 64);
+    if (isShortDuplicate(kind, ev)) return;
     // 看门狗心跳：真实进展事件刷新时刻（审批类不算——挂起在等用户）
     if (kind !== 'permission' && kind !== 'perm-expired') { lastTurnEventAt = Date.now(); turnWatchdogWarned = false; }
     const safeText = value => {
@@ -7386,6 +7818,11 @@ async function handleChatUnsafe(ws, msg) {
       return out;
     };
     const normalizeFiles = files => (cleanStoredFiles(files) || []).map(f => {
+      // An unknown pre-write snapshot must not be shown as "+N new lines".
+      // We can still report how many lines the successful Write contained.
+      if (String(f.tool || '').toLowerCase() === 'write' && typeof f.newStr === 'string') {
+        f.writtenLines = f.newStr ? f.newStr.replace(/\r\n/g, '\n').split('\n').length - (f.newStr.endsWith('\n') ? 1 : 0) : 0;
+      }
       // Claude 的 Write 事件只带“新全文”，旧版本没有告诉我们目标文件
       // 是否原本存在。把它一律当作新建会让撤销误删原文件；本机在工具真正
       // 执行前通常能判断存在性，远程/WSL 则宁可禁用自动撤销，避免把路径
@@ -7432,7 +7869,7 @@ async function handleChatUnsafe(ws, msg) {
         })) : [],
       })) : [];
       if (autoApproveRememberedPermission(s, outEv)) {
-        chatEvent({ kind: 'status', text: '已按项目权限记忆允许：' + outEv.tool });
+        emit({ kind: 'status', text: '已按项目权限记忆允许：' + outEv.tool });
         return;
       }
     }
@@ -7467,7 +7904,7 @@ async function handleChatUnsafe(ws, msg) {
       const last = a.blocks[a.blocks.length - 1];
       const text = outEv.text;
       if (!text) return chatEvent(outEv);
-      if (deltaBlock) {
+      if (deltaBlock && (last === deltaBlock || text === deltaBlock.text)) {
         // The final event repeats streamed text. Keep one durable block, also
         // when interrupted before the bridge can emit this final event.
         deltaBlock.text = text;
@@ -7475,11 +7912,14 @@ async function handleChatUnsafe(ws, msg) {
         if (openBlk === deltaBlock) openBlk = null;
         deltaBlock = null;
       }
-      else if (last && last.type === 'text' && !last._t1) last.text += text;
+      else if (last && last.type === 'text' && !last._t1) { last.text += text; last._t1 = Date.now(); if (openBlk === last) openBlk = null; }
       else {
+        // An earlier streamed commentary may already have been closed by a
+        // tool. A distinct result-only answer belongs after that tool.
+        deltaBlock = null;
         closeOpenBlk();
-        const b = { type: 'text', text, _t0: Date.now() };
-        a.blocks.push(b); openBlk = b;
+        const b = { type: 'text', text, _t0: Date.now(), _t1: Date.now() };
+        a.blocks.push(b);
       }
     } else if (kind === 'think') {
       appendThinkBlock(outEv.text, true);
@@ -7574,12 +8014,34 @@ async function handleChatUnsafe(ws, msg) {
         }
       }
       sessionsStore.save();
+    } else if (kind === 'permission-response') {
+      const record = permissionAudit.cleanRecord(ev);
+      if (!record) return;
+      const a = ensureAssistant();
+      a.permissionAudit = permissionAudit.add(a.permissionAudit, record);
+      Object.assign(outEv, record);
+      sessionsStore.save();
+    } else if (kind === 'status' && permissionAudit.automaticTool(outEv.text)) {
+      const a = ensureAssistant();
+      a.permissionAudit = permissionAudit.addAutomatic(a.permissionAudit, permissionAudit.automaticTool(outEv.text));
+      sessionsStore.save();
+    } else if (kind === 'question-response') {
+      const record = require('./lib/question-record').clean(ev);
+      if (!record) return;
+      const a = ensureAssistant();
+      if (!a.blocks.some(b => b.type === kind && b.requestId === record.requestId)) {
+        closeOpenBlk();
+        a.blocks.push({ type: kind, ...record, ts: Date.now() });
+        sessionsStore.save();
+      }
+      Object.assign(outEv, record);
     } else if (kind === 'plan') {
       const a = ensureAssistant();
-      const plan = cleanStoredPlan({ plan: ev.plan, todos: ev.todos });
+      const plan = cleanStoredPlan({ plan: ev.plan, todos: ev.todos, explanation: ev.explanation });
       if (plan) a.plan = plan; else delete a.plan;
       if (plan && plan.todos) outEv.todos = plan.todos; else delete outEv.todos;
       if (plan && plan.plan) outEv.plan = plan.plan; else delete outEv.plan;
+      if (plan?.explanation) outEv.explanation = plan.explanation; else delete outEv.explanation;
       sessionsStore.save();
     } else if (kind === 'image') {
       const a = ensureAssistant();
@@ -7653,6 +8115,8 @@ async function handleChatUnsafe(ws, msg) {
     }
     chatEvent(outEv);
   };
+  runSlot.recordQuestion = record => emit({ kind: 'question-response', ...record });
+  runSlot.recordPermission = record => { if (record) emit({ kind: 'permission-response', ...record }); };
 
   const recordTurnDiff = async () => {
     if (turnStartSnapshot?.remote) {
@@ -7726,7 +8190,7 @@ async function handleChatUnsafe(ws, msg) {
   for (const warning of mentionExpansion.warnings || []) emit({ kind: 'status', text: warning });
 
   // ===== 内置 API 对话（无需 CLI，直连供应商 API） =====
-  // builtin 可以调用 AgentHub 工具；chatgpt-web 只是普通聊天，使用同一
+  // builtin 可以调用 OrbitCell 工具；chatgpt-web 只是普通聊天，使用同一
   // 协议适配但明确不发送工具定义，也不会进入任何工具执行分支。
   if (s.agent === 'builtin' || chatOnly) {
     if (s.remoteHostId && !chatOnly) {
@@ -7755,7 +8219,8 @@ async function handleChatUnsafe(ws, msg) {
         return failBeforeRun((chatOnly ? '普通聊天' : '内置 Agent') + ' 需要指定模型：请在「模型」菜单中选择该供应商目录下的模型');
       }
     }
-    const history = (s.messages || []).slice(0, -1).slice(-16).map(m => {
+    const research = require('./lib/web-research').options(agentCenter.configuration(settings.data, s.agent, ''));
+    const history = (s.messages || []).slice(0, -1).slice(-research.historyMessages).map(m => {
       let text = '';
       if (m.role === 'user') text = m.text || '';
       else if (Array.isArray(m.blocks)) text = m.blocks.filter(b => b.type === 'text').map(b => b.text).join('\n');
@@ -7778,15 +8243,16 @@ async function handleChatUnsafe(ws, msg) {
     try {
       const runDirect = chatOnly ? runApiChat : runApiAgent;
       handle = runDirect({
-        prompt, model: s.model, provider,
-        // 选择 WSL/SSH 后，内置 Agent 明确回到 AgentHub 本机默认目录；
+        prompt, model: s.model, provider, research,
+        // 选择 WSL/SSH 后，内置 Agent 明确回到 OrbitCell 本机默认目录；
         // 否则远程 /home/... 会被误当成 Windows 本地路径而启动失败。
         cwd: localOnly && s.remoteHostId ? undefined : (s.cwd || undefined),
          history, images: b64Images, sessionKey: s.id,
-         workflowTools: settings.data.mcpTools !== false ? require('./lib/workflow-tools').definitions.filter(t => !(settings.data.mcpDisabledTools || []).includes(t.name)) : [],
+         workflowTools: agentCenter.featureEnabled(settings.data, s.agent, 'agenthubTools') ? require('./lib/workflow-tools').definitions.filter(t => !(settings.data.mcpDisabledTools || []).includes(t.name)) : [],
+         externalMcp: agentCenter.featureEnabled(settings.data, s.agent, 'mcpServers'),
          workflowCall: (name, args) => require('./lib/workflow-tools').local(name, args, s.id, s),
          autoPerms: s.autoPerms === true, permMode: s.permMode || '', effort: s.effort || '',
-         permissionGrants: permissionMemory.list(s).map(x => x.tool),
+         permissionGrants: () => agentCenter.featureEnabled(settings.data, s.agent, 'permissionMemory') ? permissionMemory.list(s).map(x => x.tool) : [],
          ...(await runtimePromptFor(s, prompt)),
          remoteHostId: s.remoteHostId || '',
       }, emit);
@@ -7837,8 +8303,10 @@ async function handleChatUnsafe(ws, msg) {
     autoPerms: !!s.autoPerms,
     permMode: s.permMode || undefined,
     effort: s.effort || undefined,
+    dshPermission: s.agent==='dsh'?s.dshPermission||'default':undefined,
     cwd: localOnly && s.remoteHostId ? undefined : (s.cwd || undefined),
     custom: customCfg,
+    externalMcp: agentCenter.featureEnabled(settings.data, s.agent, 'mcpServers'),
     nativeRemote,
     ...(await runtimePromptFor(s, prompt)),
     remoteHostId: s.remoteHostId || '', acpMode: s.acpMode || '', acpConfig: s.acpConfig || {},
@@ -7854,7 +8322,7 @@ async function handleChatUnsafe(ws, msg) {
       platform: remotePlatform,
       exec: remoteExec,
     } : null,
-    settings: settings.data,
+    settings: executionSettings,
     }, emit);
   } catch (e) {
     return failBeforeRun(e.message || 'Agent 启动失败');
@@ -8023,7 +8491,7 @@ setImmediate(() => maybeArchiveSessions());
 const HOST = process.env.AGENTHUB_HOST || '127.0.0.1';
 const isLoopbackHost = host => ['127.0.0.1', 'localhost', '::1'].includes(String(host).toLowerCase());
 if (!isLoopbackHost(HOST) && !TOKEN && !RO_TOKEN && !auth.enabled()) {
-  console.error('AgentHub 拒绝在非本机地址监听：请先启用账户认证，或设置 AGENTHUB_TOKEN / AGENTHUB_RO_TOKEN。');
+  console.error('OrbitCell 拒绝在非本机地址监听：请先启用账户认证，或设置 AGENTHUB_TOKEN / AGENTHUB_RO_TOKEN。');
   process.exit(1);
 }
 // 全局 JSON 错误处理器（必须在全部路由注册之后，见上方说明）
@@ -8035,9 +8503,9 @@ app.use((err, req, res, next) => {
 });
 server.listen(PORT, HOST, () => {
   console.log('');
-  console.log('  ⬡ AgentHub 已启动:  http://' + (HOST === '0.0.0.0' ? '0.0.0.0' : HOST) + ':' + PORT + (HOST === '0.0.0.0' ? '  （已开放局域网，手机/其他电脑可用本机 IP 访问）' : ''));
+  console.log('  ⬡ OrbitCell 已启动:  http://' + (HOST === '0.0.0.0' ? '0.0.0.0' : HOST) + ':' + PORT + (HOST === '0.0.0.0' ? '  （已开放局域网，手机/其他电脑可用本机 IP 访问）' : ''));
   if (TOKEN) console.log('  访问令牌已启用（AGENTHUB_TOKEN）');
   if (RO_TOKEN) console.log('  只读令牌已启用（AGENTHUB_RO_TOKEN）：仅可查看');
-  console.log('  cc-switch: ' + (ccswitch.dbPath() || '未找到'));
+  console.log('  providers: OrbitCell 本地配置');
   console.log('');
 });

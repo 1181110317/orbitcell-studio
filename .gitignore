@@ -127,3 +127,9 @@ config.toml
 /TEST-SUITE-VERIFICATION-*.md
 /agenthub-architecture.png
 /agenthub-architecture.svg
+
+# Local UI investigations and verification evidence are not product sources.
+/docs/修复记录-*.md
+/docs/核验记录-*.md
+/docs/prototypes/
+/docs/assets/agent-preview/

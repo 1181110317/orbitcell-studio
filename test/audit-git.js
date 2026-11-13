@@ -16,7 +16,7 @@ async function check(name, fn) {
 (async () => {
   try {
     run(repo, ['init', '-q']);
-    run(repo, ['config', 'user.name', 'AgentHub Test']);
+    run(repo, ['config', 'user.name', 'OrbitCell Test']);
     run(repo, ['config', 'user.email', 'test@example.invalid']);
     run(repo, ['config', 'core.autocrlf', 'false']);
     fs.mkdirSync(path.join(repo, 'sub'));

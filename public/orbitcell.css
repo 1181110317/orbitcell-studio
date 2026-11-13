@@ -1,0 +1,86 @@
+/* Compact management surfaces. Transcript typography and indentation are untouched. */
+#agentCenterPage .ac-inventory{display:grid;grid-template-columns:repeat(auto-fill,minmax(min(100%,216px),1fr));gap:10px}
+#agentCenterPage .ac-planned-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,216px),1fr));gap:10px}
+#modelCenter .provider-grid{grid-template-columns:repeat(auto-fill,minmax(min(100%,260px),1fr));gap:10px}
+#agentCenterPage .ac-agent-card{display:grid;grid-template-rows:auto auto auto;gap:10px;padding:13px 14px;border-radius:12px;box-shadow:none;min-height:132px}
+#agentCenterPage .ac-agent-card:hover{border-color:color-mix(in srgb,var(--accent) 32%,var(--border));background:color-mix(in srgb,var(--accent) 2%,var(--bg))}
+#agentCenterPage .ac-agent-card-head{display:grid;grid-template-columns:30px minmax(0,1fr) 26px;gap:9px;align-items:start}
+#agentCenterPage .ac-agent-card-head>.ac-agent-icon{margin-top:2px}
+#agentCenterPage .ac-agent-card-head>div{min-width:0}
+#agentCenterPage .ac-agent-card-head h3{margin:0;font-size:13px;line-height:20px;white-space:nowrap;text-overflow:ellipsis;overflow:hidden}
+#agentCenterPage .ac-card-settings{width:26px;height:26px;align-self:start;margin-top:-2px;border-radius:7px}
+#agentCenterPage .ac-card-meta{display:flex;align-items:center;gap:7px;min-width:0;height:17px}
+#agentCenterPage .ac-card-meta .ac-inventory-state{flex:none;font-size:10px;line-height:16px}
+#agentCenterPage .ac-card-meta .ac-card-version{min-width:0;flex:1;margin:0;font-size:10px}
+#agentCenterPage .ac-card-version{display:block;margin:1px 0 0;font-size:10px;line-height:16px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#agentCenterPage .ac-card-model{display:flex;align-items:center;gap:6px;min-width:0;font-size:11px;line-height:18px;margin:0;color:var(--text)}
+#agentCenterPage .ac-card-model>svg{width:12px;height:12px;flex:none;color:var(--muted)}
+#agentCenterPage .ac-card-model>span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#agentCenterPage .ac-card-footer{display:flex;align-items:center;justify-content:space-between;gap:6px;margin:0;padding:8px 0 0;border-top:1px solid var(--border);min-width:0}
+#agentCenterPage .ac-card-footer>span{display:flex;align-items:center;gap:5px;font-size:10px;color:var(--muted);min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#agentCenterPage .ac-card-footer>span svg{width:12px;height:12px;flex:none}
+#agentCenterPage .ac-card-start{height:25px;min-height:25px;padding:2px 7px;border-radius:6px;gap:5px;font-size:10px;line-height:19px;background:var(--accent-soft);color:var(--accent);white-space:nowrap}
+#agentCenterPage .ac-card-start svg{width:12px;height:12px}
+#agentCenterPage .ac-detail{max-width:920px}
+#agentCenterPage .ac-config-summary{padding:12px 14px}
+/* Reasoning remains a real range control with clickable stop labels. */
+#flyMenu .model-effort-slider{position:relative;margin-top:9px}
+#flyMenu .model-effort-rail{position:relative;width:auto;height:28px;overflow:visible;clip-path:none}
+#flyMenu .model-effort-track{height:3px;background:var(--border-strong)}
+#flyMenu .model-effort-track>i{background:var(--accent)}
+#flyMenu .model-effort-ticks{display:grid;grid-template-columns:repeat(var(--effort-stops),minmax(0,1fr));gap:0;justify-content:normal;padding:0}
+#flyMenu .model-effort-ticks>button{flex:none;min-width:0;min-height:24px;padding:2px 0;border:0;border-radius:4px;background:transparent;font-size:10px;line-height:20px}
+#flyMenu .model-effort-ticks>button[aria-pressed=true]{border:0;background:var(--accent-soft);color:var(--accent)}
+#flyMenu .model-effort-slider:has(input:focus-visible) .model-effort-ticks{outline:0}
+#flyMenu .model-effort-slider input:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+.provider-quota-panel{margin:16px 0 22px;padding:16px;border:1px solid var(--border);border-radius:12px;background:var(--bg)}
+.provider-quota-panel>header,.provider-quota-panel>header>div{display:flex;align-items:center;gap:8px;min-width:0}
+.provider-quota-panel>header{justify-content:space-between;flex-wrap:wrap;gap:8px 16px;margin-bottom:14px}
+.provider-quota-panel>header svg{width:14px;height:14px;color:var(--muted)}
+.provider-quota-panel h3{margin:0;font-size:12px;font-weight:600;color:var(--title)}
+.provider-quota-panel [data-pq-time]{font-size:10px;color:var(--muted)}
+.provider-quota-panel>footer{margin-top:12px;font-size:10px;color:var(--muted);line-height:17px}
+.provider-quota-panel .btn-mini{font-size:10px;white-space:nowrap}
+.pq-balances{display:flex;gap:28px;flex-wrap:wrap;margin-bottom:12px}
+.pq-amount{display:grid;gap:3px;min-width:100px}
+.pq-amount small{font-size:11px;color:var(--muted)}
+.pq-amount strong{font-size:22px;line-height:30px;letter-spacing:-.5px;font-weight:600;color:var(--title)}
+.pq-amount>span{font-size:10px;color:var(--muted)}
+.pq-windows{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,180px),1fr));gap:16px 22px;max-width:800px}
+.pq-window>div:first-child{display:flex;justify-content:space-between;align-items:baseline;gap:10px;font-size:11px;color:var(--text)}
+.pq-window b{font-size:14px;font-weight:600;white-space:nowrap;color:var(--title)}
+.pq-window b small{font-size:10px;color:var(--muted);margin-left:3px;font-weight:400}
+.pq-track{height:5px;border-radius:5px;background:var(--panel-2);overflow:hidden;margin:8px 0 5px}
+.pq-track>i{display:block;height:100%;border-radius:inherit;background:var(--accent)}
+.pq-window.is-low .pq-track>i{background:var(--orange,#c28120)}
+.pq-window>small{font-size:10px;color:var(--muted);line-height:17px;display:block;min-height:17px}
+.pq-empty{margin:0;font-size:11px;line-height:21px;color:var(--muted);overflow-wrap:anywhere}
+.pq-glance-button{display:flex;align-items:center;gap:9px;max-width:100%;padding:4px 0;border:0;background:transparent;color:var(--text);font:11px/18px var(--font-main);text-align:left;cursor:pointer}
+.pq-glance-button>svg{width:13px;height:13px;flex:none;color:var(--muted)}
+.pq-glance-button>span{display:inline-flex;align-items:baseline;gap:4px;min-width:0;white-space:nowrap}
+.pq-glance-button small{color:var(--muted);font-size:10px}
+.pq-glance-button b{font-weight:500;font-size:11px}
+.pq-glance-button:hover b{color:var(--accent)}
+.pq-glance-button.pq-unavailable{color:var(--muted);font-size:10px}
+.provider-card .pq-glance{padding:0 13px 9px;min-height:30px}
+#quotaChip.pq-glance{padding:1px 6px;border:1px solid var(--border);background:transparent;border-radius:7px;max-width:310px}
+#quotaChip .pq-glance-button{font-size:10px;line-height:16px;padding:0;gap:7px;max-width:100%;overflow:hidden}
+#quotaChip .pq-glance-button b{font-size:10px}
+#quotaChip .pq-glance-button small{font-size:9px}
+.provider-quota-dialog{width:min(100%,600px);margin:auto}
+.provider-quota-dialog.provider-quota-panel{margin-block:0;padding:4px 0;border:0}
+.pq-settings{width:min(100%,640px);margin:auto}
+.pq-settings>p,.pq-help{font-size:11px;line-height:20px;color:var(--muted);margin:0 0 16px}
+.pq-fields{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px 16px}
+.pq-fields>label{display:grid;align-content:start;gap:6px;font-size:11px;line-height:18px;color:var(--text);min-width:0;margin:0!important}
+.pq-fields .pq-full{grid-column:1/-1}
+.pq-fields :is(input,select,.ui-select){width:100%;min-width:0;height:35px;min-height:35px;font-size:11px;box-sizing:border-box}
+#pqCustom{margin-top:12px}#pqMappings{margin-top:18px}
+.pq-metric-form{border:1px solid var(--border);border-radius:10px;padding:12px;margin-bottom:10px}
+.pq-metric-title{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;font-size:11px}
+.pq-metric-title button{width:24px;height:24px;min-height:24px;padding:3px}
+.pq-metric-title svg{width:13px;height:13px}
+.pq-settings>.dialog-actions{position:sticky;bottom:0;z-index:2;background:var(--bg);border-top:1px solid var(--border);padding:14px 0;margin-top:18px}
+.brand-logo>img{display:block;width:28px;height:28px;border-radius:8px}
+@media(max-width:600px){#dlgBody .stats-overview-cards{grid-template-columns:repeat(2,minmax(0,1fr))}#dlgBody .stats-overview-cards .sc-value{min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere}}
+@media(max-width:600px){.pq-fields{grid-template-columns:minmax(0,1fr)}.pq-balances{gap:18px}.provider-quota-panel{padding:12px}.provider-quota-panel [data-pq-time]{display:none}#quotaChip .pq-glance-button>span:nth-of-type(2){display:none}}

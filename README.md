@@ -1,13 +1,17 @@
 <div align="center">
 
-<h1>AgentHub</h1>
+<img src="public/brand.svg" alt="OrbitCell" width="64">
 
-<p><strong>One local workspace for every coding agent, on every computer.</strong></p>
+<h1>OrbitCell Studio</h1>
+
+<p><strong>AI Agent Development Workspace</strong><br>统一 AI 智能体开发工作空间</p>
+<p>One Orbit. Infinite Possibilities.</p>
+<p>Unify Agents, Models, Tools and Workflows.</p>
 
 <p>Claude Code · Codex · ZCode · DeepSeek Harness · Gemini CLI · OpenCode · Built-in Agent · Custom</p>
 
 <p>
-  <a href="https://github.com/1181110317/agenthub"><img alt="GitHub" src="https://img.shields.io/badge/github-1181110317%2Fagenthub-24292f?logo=github"></a>
+  <a href="https://github.com/1181110317/orbitcell-studio"><img alt="GitHub" src="https://img.shields.io/badge/github-1181110317%2Forbitcell-studio-24292f?logo=github"></a>
   <img alt="Node.js" src="https://img.shields.io/badge/node-%E2%89%A522.19-339933?logo=node.js&logoColor=white">
   <img alt="License" src="https://img.shields.io/badge/license-ISC-blue">
   <img alt="Platform" src="https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4?logo=windows">
@@ -16,16 +20,22 @@
 </div>
 
 <p align="center">
-  <a href="docs/assets/demo.gif"><img src="docs/assets/demo.gif" alt="AgentHub demo: Agent management, models, chat and toolbox" width="92%"></a>
+  <a href="docs/assets/orbitcell-agents.png"><img src="docs/assets/orbitcell-agents.png" alt="OrbitCell Studio: compact Agent management with model, version and environment controls" width="92%"></a>
 </p>
 
 <p align="center">
-  <sub>Agent management, shared models, chat and terminal, and the toolbox in one workspace. Demo runs on an isolated dataset.</sub>
+  <sub>Agents, models and development workflows in one workspace. Preview uses an isolated dataset.</sub>
 </p>
 
-AgentHub is a local-first web workspace that brings multiple coding agents into one browser tab. Each agent keeps its own native session protocol; AgentHub adds a shared timeline, model routing, workspace tools, Git/PR flows, terminals, remote hosts, schedules and token accounting. No cloud account, no external database, and no build step for the front end.
+OrbitCell Studio is an AI Agent management, model management and development collaboration platform. It brings coding agents, providers, tools and workflows into one local workspace. Each agent keeps its native session protocol; OrbitCell adds shared model routing, a conversation timeline, workspace tools, Git/PR flows, terminals, remote hosts, schedules and token accounting. No cloud account, no external database, and no front-end build step.
 
 ## What's new
+
+- **Compact Agent workspace** — aligned settings, real brand icons, detected versions, native permission modes, per-Agent page preferences and selective conversation import. Catalog placeholders are clearly marked as not connected.
+- **Provider-first model management** — configure a provider once, then choose its models in bulk. Compatible Agents share connections; exceptions stay with the Agent.
+- **Balances and allowances** — provider cards, account details and the conversation header share one quota view. Supported APIs report balances, credits and timed allowances with resets; custom JSON mappings support other read-only quota APIs. Missing readings stay unknown.
+- **Reasoning slider** — choose only the effort levels declared by the current model or Agent, with keyboard and touch support.
+- **OrbitCell branding** — product name, repository, documentation and launcher are aligned. Existing installations keep their stored data and integrations.
 
 **Agent management is now a first-class workspace.** Every executor, computer and default lives in one place.
 
@@ -35,11 +45,11 @@ AgentHub is a local-first web workspace that brings multiple coding agents into 
 - **Studio theme** — a restrained light palette with the new shared interface system, while the existing themes remain available.
 
 <p align="center">
-  <a href="docs/assets/agent-management.jpg"><img src="docs/assets/agent-management.jpg" alt="Agent management: environments, shared model defaults and recent sessions" width="92%"></a>
+  <a href="docs/assets/orbitcell-providers.png"><img src="docs/assets/orbitcell-providers.png" alt="OrbitCell Studio provider management with account balances and allowance windows" width="92%"></a>
 </p>
 
 <p align="center">
-  <sub>Agent management: per-computer environments, shared model defaults, diagnostics and recent sessions.</sub>
+  <sub>Provider quota preview: balances, credits and independent usage windows. Values are isolated examples.</sub>
 </p>
 
 ## Contents
@@ -53,6 +63,8 @@ AgentHub is a local-first web workspace that brings multiple coding agents into 
 | 🧭 [Agent management](docs/agent-management.md) | Per-computer Agent defaults, shared models, diagnostics, task creation and the Studio theme |
 | 🧩 [Management centers](docs/management-centers.md) | Model catalog, shared API connections, global presets, skills, MCP servers, assistants and settings |
 | 🎨 [Interface design](docs/interface-design.md) | Shared typography, controls, icons and responsive surfaces across every built-in workspace |
+| 💳 [Provider quotas](docs/provider-quotas.md) | Balances, credits, timed allowances and custom read-only quota APIs |
+| 🪐 [Product identity](docs/branding.md) | OrbitCell Studio names, positioning and installation compatibility |
 | 🏗 [Architecture](docs/architecture.md) | Browser/server split, agent adapters, event model, storage layers and directory layout |
 | 🧪 [Testing](docs/testing.md) | Test suite, focused commands, browser checks and coverage boundaries |
 | 🩺 [Troubleshooting](docs/troubleshooting.md) | Port conflicts, missing CLIs, browser/docked-page issues, proxy problems, data recovery and common errors |
@@ -64,8 +76,8 @@ A standalone documentation index is also available at [docs/README.md](docs/READ
 **Requires [Node.js](https://nodejs.org/) ≥ 22.19.0** and at least one agent CLI — or use the built-in agent with an Anthropic/OpenAI-compatible provider.
 
 ```bash
-git clone https://github.com/1181110317/agenthub.git
-cd agenthub
+git clone https://github.com/1181110317/orbitcell-studio.git
+cd orbitcell-studio
 npm install
 npm start
 ```
@@ -101,7 +113,7 @@ Details for each adapter, including WSL/SSH notes and capability limits, are in 
 
 ## Project status
 
-AgentHub is actively developed and Windows-first. The registered test suite contains 96 scripts covering syntax, logic, isolated API, protocols, durability and browser regressions. External provider accounts, real SSH hosts and every third-party CLI are not exercised by the default suite; use the [testing guide](docs/testing.md) for the exact scope. The application stores runtime data locally; there is no built-in cloud sync or multi-user cloud service.
+OrbitCell is actively developed and Windows-first. The registered test suite contains 99 scripts covering syntax, logic, isolated API, protocols, durability and browser regressions. External provider accounts, real SSH hosts and every third-party CLI are not exercised by the default suite; use the [testing guide](docs/testing.md) for the exact scope. The application stores runtime data locally; there is no built-in cloud sync or multi-user cloud service.
 
 Appearance includes 11 themes: `studio`, `paper`, `aionui`, `cottage`, `forest`, `ocean`, `sakura`, `ink`, `graphite`, `aurora`, `dusk`. Studio is the clean demo style; existing theme preferences remain available.
 

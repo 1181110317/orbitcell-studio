@@ -386,7 +386,7 @@
   /**
    * Converts HEIC/HEIF photos to provider-compatible JPEG before applying the
    * attachment size limit. Upstream loads a bundled decoder on demand; here the
-   * decoder is optional (window.heicTo) so AgentHub keeps zero new dependencies
+   * decoder is optional (window.heicTo) so OrbitCell keeps zero new dependencies
    * — without it, HEIC reports `unreadable` instead of silently failing.
    */
   async function prepareImageForAttachment(file, maxBytes) {

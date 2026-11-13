@@ -13,13 +13,26 @@ window.AgentHubUI=(()=>{
   Object.assign(glyphs,{'✅':'check','🔄':'refresh','←':'left','⇄':'swap','⬆':'up','⬇':'down','✨':'spark','🔀':'shuffle','📸':'camera','🌿':'branch','⛔':'blocked','❓':'help','🐧':'terminal','🖥':'monitor','●':'dot','★':'star','⌁':'pulse','◇':'cube','💡':'bulb','🔒':'lock'});
   Object.assign(glyphs,{'⚒':'toolbox','🛠':'toolbox','🤖':'workflow','🧠':'brain','☑':'checkSquare','☰':'list','⏵':'play','⤴':'external','⋯':'more','⋮':'more'});
   paths.minus='<path d="M5 12h14"/>';
-  paths.quote='<path d="m9 6-5 5 5 5"/><path d="M4 11h9a7 7 0 0 1 7 7"/>';
+  paths.quote='<path d="M5 5v14M10 7h10M10 12h10M10 17h6"/>';
+  paths.refresh='<path d="M21 12a9 9 0 1 1-2.6-6.4L21 8"/><path d="M21 3v5h-5"/>';
   glyphs['−']='minus';
+  Object.assign(glyphs,{'—':'minus','⤢':'maximize','⤡':'minimize'});
   const prefix=new RegExp('^\\s*(['+Object.keys(glyphs).join('')+'])\\uFE0F?\\s*(.*)$','us');
-  const controlIcons={btnWorkbench:'grid',btnInbox:'inbox',btnModelCenter:'cube',btnBrowserDock:'browser',btnFeatures:'toolbox',btnLocalTerm:'terminal',btnStats:'chart',btnProviders:'shield',btnSSH:'server',btnScheduled:'calendar',btnSettings:'gear',btnHeaderMore:'more',btnFiles:'folder',btnRunning:'terminal',btnSystemMonitor:'cpu',btnSubagents:'workflow',btnGit:'branch',btnSessUsage:'chart',btnTheme:'moon',btnAttach:'clip',btnMic:'microphone',btnComposerConfig:'sliders',btnSend:'up',btnExport:'external',btnNewTask:'plus',sbToggle:'sidebar',dlgClose:'close',assistantChip:'spark'};
+  const controlIcons={btnWorkbench:'grid',btnInbox:'inbox',btnModelCenter:'cube',btnBrowserDock:'browser',btnFeatures:'toolbox',btnLocalTerm:'terminal',btnStats:'chart',btnProviders:'providerRoute',btnSSH:'server',btnScheduled:'calendar',btnSettings:'gear',btnHeaderMore:'more',btnFiles:'folder',btnRunning:'runningTasks',btnSystemMonitor:'cpu',btnSubagents:'workflow',btnGit:'branch',btnSessUsage:'chart',btnTheme:'appearance',btnAttach:'plus',btnMic:'microphone',btnComposerConfig:'runConfig',btnSend:'up',btnExport:'download',btnNewTask:'plus',sbToggle:'sidebar',dlgClose:'close',assistantChip:'spark'};
+  controlIcons.btnCapabilities='capabilities';
   const targets='button,#dlgTitle,#assistantChip,.dd-caret,.st-close,.review-tab-close,.at-del,.si-del,.si-wait,.tt-x,.tt-restart,.provider-search-icon,.provider-empty-icon,.ms-ico,.ctx-edit-glyph,.think-glyph,.brand-logo,.es-logo,.mc-model-mark.is-group,.feature-card>i,.browser-empty>span,.proj-ico,.turn-tail>.pill,.ws-crumb-sep,.fly-item[data-command-icon],.settings-card-icon,.settings-overview-icon,.settings-tool-card>b,.pal-ico,.te-pv-logo,.te-pv-badge';
   function icons(root=document){
     if(!root)return;
+    const logos='.brand-logo,.es-logo,.te-pv-logo,.auth-logo';
+    for(const logo of [...(root.matches?.(logos)?[root]:[]),...root.querySelectorAll(logos)]){
+      const identity=window.AgentHubIdentity;
+      if(identity){
+        if(logo.dataset.identityVersion!==String(identity.revision)){
+          logo.innerHTML=identity.brand();logo.dataset.identityVersion=String(identity.revision);
+          logo.classList.toggle('has-custom-brand',identity.hasCustomBrand());
+        }
+      }else if(!logo.querySelector(':scope > img[src="/brand.svg"]'))logo.innerHTML='<img src="/brand.svg" alt="" width="32" height="32">';
+    }
     for(const el of [...(root.matches?.(targets)?[root]:[]),...root.querySelectorAll(targets)])for(const node of [...el.childNodes]){
       if(node.nodeType!==3)continue;
       const raw=node.textContent;
@@ -41,7 +54,11 @@ window.AgentHubUI=(()=>{
     // or listeners on their parent buttons.
     for(const el of [...(root.matches?.('[data-ui-icon]')?[root]:[]),...root.querySelectorAll('[data-ui-icon]')]){
       const name=el.dataset.uiIcon,svg=el.querySelector(':scope > svg,:scope > .ui-icon-slot > svg');
-      if(!svg||svg.dataset.controlIcon===name)continue;
+      if(!svg){
+        if(!el.children.length&&!el.textContent.trim()){el.innerHTML=icon(name);el.firstElementChild.dataset.controlIcon=name;}
+        continue;
+      }
+      if(svg.dataset.controlIcon===name)continue;
       const holder=document.createElement('template');holder.innerHTML=icon(name);
       const next=holder.content.firstElementChild;next.dataset.controlIcon=name;svg.replaceWith(next);
     }
@@ -54,50 +71,81 @@ window.AgentHubUI=(()=>{
   document.addEventListener('DOMContentLoaded',()=>{
     for(const [id,name] of Object.entries(controlIcons)){const el=document.getElementById(id);if(el)el.dataset.uiIcon=name;}
     icons(document);document.getElementById('composerUsage')?.addEventListener('click',()=>openSessionUsage());
-    const body=document.getElementById('dlgBody');
-    if(!body)return;
-    // Async forms replace their loading placeholders after openDlg. Enhance
-    // only newly mounted dialog fragments; never observe streamed messages.
-    const options={childList:true,subtree:true},observer=new MutationObserver(records=>{
-      const roots=new Set(records.flatMap(r=>[...r.addedNodes]).filter(n=>n.nodeType===1&&n.isConnected));
-      observer.disconnect();
-      try{for(const root of roots)if(![...roots].some(parent=>parent!==root&&parent.contains(root)))enhanceDialogSelects(root);}
-      finally{observer.observe(body,options);}
-    });
-    observer.observe(body,options);
+
   });
   return {icon,icons};
 })();
-function enhanceModelInput(input, source) {
-  if (!input || input.dataset.modelPicker) return;
-  input.dataset.modelPicker = '1'; input.removeAttribute('list'); input.autocomplete = 'off';
-  const holder = document.createElement('div'); holder.className = 'model-input-control';
-  input.parentNode.insertBefore(holder, input); holder.appendChild(input);
-  const toggle = document.createElement('button'); toggle.type = 'button'; toggle.className = 'model-picker-toggle'; toggle.innerHTML=UI_ICONS.chevDown; toggle.setAttribute('aria-label','选择模型');toggle.setAttribute('aria-haspopup','listbox');toggle.setAttribute('aria-expanded','false');
-  const popup = document.createElement('div'); popup.className = 'model-suggestions'; popup.hidden = true; popup.setAttribute('role','listbox');
-  holder.append(toggle,popup); let index=0,rows=[];
-  const close=()=>{popup.hidden=true; input.setAttribute('aria-expanded','false');toggle.setAttribute('aria-expanded','false');};
-  const choose=row=>{input.value=row.id; input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));close();input.focus();close();};
-  const render=(all=false)=>{
-    const values=typeof source==='function'?source():source||[],q=all?'':input.value.trim().toLowerCase();
-    rows=values.map(m=>typeof m==='string'?{id:m,name:m}:m).filter(m=>m.id&&(!q||[m.id,m.name].join(' ').toLowerCase().includes(q))).slice(0,80);index=0;
-    popup.innerHTML=rows.map((m,i)=>`<button type="button" role="option" aria-selected="${i===0}" data-model-option="${i}"><b>${esc(m.name||m.id)}</b>${m.name&&m.name!==m.id?`<small>${esc(m.id)}</small>`:''}</button>`).join('')||'<p>没有匹配项，可以直接输入模型 ID</p>';
-    popup.querySelectorAll('[data-model-option]').forEach(b=>{b.onmousedown=e=>e.preventDefault();b.onclick=()=>choose(rows[+b.dataset.modelOption]);});
-    popup.hidden=false;input.setAttribute('aria-expanded','true');toggle.setAttribute('aria-expanded','true');
-  };
-  input.setAttribute('role','combobox');input.setAttribute('aria-autocomplete','list');input.setAttribute('aria-expanded','false');
+// One portal layer for model inputs, including inputs inside scrolling dialogs.
+const modelInputInstances=new Set();
+let modelInputSequence=0;
+window.AgentHubDropdowns=Object.freeze({close(){for(const item of modelInputInstances)item.close();},dispose(root){for(const item of modelInputInstances)if(root?.contains(item.holder))item.destroy();}});
+function enhanceModelInput(input,source) {
+  if(!input||input.dataset.modelPicker)return;
+  input.dataset.modelPicker='1';input.removeAttribute('list');input.autocomplete='off';
+  if(!input.id)input.id='ah-model-input-'+(++modelInputSequence);
+  const holder=document.createElement('div');holder.className='model-input-control';input.before(holder);holder.append(input);
+  const toggle=document.createElement('button');toggle.type='button';toggle.className='model-picker-toggle';toggle.innerHTML=window.AgentHubIcons.svg('chevronDown');toggle.setAttribute('aria-label','选择模型');toggle.setAttribute('aria-haspopup','listbox');
+  holder.append(toggle);
+  const popup=document.createElement('div');popup.className='model-suggestions model-suggestions-portal';popup.id=input.id+'-models';popup.hidden=true;popup.setAttribute('role','listbox');popup.setAttribute('aria-label','可用模型');document.body.append(popup);
+  input.setAttribute('role','combobox');input.setAttribute('aria-autocomplete','list');input.setAttribute('aria-controls',popup.id);toggle.setAttribute('aria-controls',popup.id);
+  let rows=[],index=0;
+  function close(){if(!popup.hidden)popup.hidden=true;input.setAttribute('aria-expanded','false');toggle.setAttribute('aria-expanded','false');input.removeAttribute('aria-activedescendant');}
+  function position(){
+    if(popup.hidden)return;
+    if(!holder.isConnected){instance.destroy();return;}
+    const r=holder.getBoundingClientRect(),zoom=Number(document.body.style.zoom)||1,w=innerWidth/zoom,h=innerHeight/zoom;
+    if(!r.width||!r.height||r.bottom<0||r.top>innerHeight){close();return;}
+    const width=Math.min(w-16,Math.max(220,r.width/zoom)),below=h-r.bottom/zoom-8,above=r.top/zoom-8,down=below>=170||below>=above;
+    popup.style.width=width+'px';popup.style.maxHeight=Math.max(60,Math.min(272,down?below:above))+'px';
+    popup.style.left=Math.max(8,Math.min(r.left/zoom,w-width-8))+'px';popup.style.top=(down?r.bottom/zoom+5:Math.max(8,r.top/zoom-popup.offsetHeight-5))+'px';
+  }
+  const choose=row=>{input.value=row.id;close();input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));input.focus();close();};
+  function render(all=false){
+    if(input.disabled||input.readOnly)return;
+    const values=typeof source==='function'?source():source||[],query=all?'':input.value.trim().toLowerCase();
+    rows=values.map(m=>typeof m==='string'?{id:m,name:m}:m).filter(m=>m?.id&&(!query||[m.id,m.name].join(' ').toLowerCase().includes(query))).slice(0,100);
+    index=Math.max(0,rows.findIndex(m=>m.id===input.value));
+    popup.innerHTML=rows.map((m,i)=>`<button type="button" role="option" id="${popup.id}-${i}" aria-selected="${m.id===input.value}" class="${i===index?'is-focused':''}" data-model-option="${i}"><span><b>${esc(m.name||m.id)}</b>${m.name&&m.name!==m.id?`<small>${esc(m.id)}</small>`:''}</span><i>${m.id===input.value?window.AgentHubIcons.svg('check'):''}</i></button>`).join('')||'<p>没有匹配项，可直接输入模型 ID。</p>';
+    popup.querySelectorAll('[data-model-option]').forEach(button=>{button.onmousedown=e=>e.preventDefault();button.onclick=()=>choose(rows[Number(button.dataset.modelOption)]);});
+    popup.hidden=false;input.setAttribute('aria-expanded','true');toggle.setAttribute('aria-expanded','true');input.setAttribute('aria-activedescendant',popup.id+'-'+index);position();
+  }
   input.addEventListener('input',()=>render());
-  input.addEventListener('keydown',e=>{
-    if(e.isComposing||e.keyCode===229)return;
-    if(popup.hidden){if(e.key==='ArrowDown'){e.preventDefault();render(true);}return;}
-    if(!['ArrowDown','ArrowUp','Enter','Escape'].includes(e.key))return;
-    e.preventDefault();e.stopPropagation();
-    if(e.key==='Escape')return close();
-    if(e.key==='Enter'){if(rows[index])choose(rows[index]);return;}
-    if(!rows.length)return;index=(index+(e.key==='ArrowDown'?1:-1)+rows.length)%rows.length;
-    popup.querySelectorAll('[data-model-option]').forEach((b,i)=>b.setAttribute('aria-selected',String(i===index)));
-    popup.querySelector(`[data-model-option="${index}"]`)?.scrollIntoView({block:'nearest'});
+  input.addEventListener('keydown',event=>{
+    if(event.isComposing||event.keyCode===229)return;
+    if(popup.hidden){if(event.key==='ArrowDown'){event.preventDefault();render(true);}return;}
+    if(!['ArrowDown','ArrowUp','Enter','Escape','Tab','Home','End'].includes(event.key))return;
+    if(event.key==='Tab'){close();return;}
+    event.preventDefault();event.stopPropagation();
+    if(event.key==='Escape')return close();
+    if(event.key==='Enter'){if(rows[index])choose(rows[index]);else close();return;}
+    if(!rows.length)return;
+    index=event.key==='Home'?0:event.key==='End'?rows.length-1:(index+(event.key==='ArrowDown'?1:-1)+rows.length)%rows.length;
+    popup.querySelectorAll('[data-model-option]').forEach((button,i)=>button.classList.toggle('is-focused',i===index));
+    const active=popup.querySelector(`[data-model-option="${index}"]`);input.setAttribute('aria-activedescendant',active.id);active.scrollIntoView({block:'nearest'});
   });
-  holder.addEventListener('focusout',()=>setTimeout(()=>{if(!holder.contains(document.activeElement))close();},0));
+  popup.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close();input.focus();}});
+  holder.addEventListener('focusout',()=>setTimeout(()=>{if(!holder.contains(document.activeElement)&&!popup.contains(document.activeElement))close();},0));
   toggle.onclick=()=>{if(!popup.hidden)return close();input.focus();render(true);};
+  const instance={holder,popup,input,close,position,destroy(){close();popup.remove();modelInputInstances.delete(instance);}};modelInputInstances.add(instance);close();
 }
+document.addEventListener('pointerdown',event=>{const path=event.composedPath();for(const item of modelInputInstances)if(!path.includes(item.holder)&&!path.includes(item.popup))item.close();});
+document.addEventListener('keydown',event=>{if(event.key==='Escape')for(const item of modelInputInstances)item.close();});
+let modelPositionFrame=0;
+const positionModelInputs=()=>{if(modelPositionFrame)return;modelPositionFrame=requestAnimationFrame(()=>{modelPositionFrame=0;for(const item of modelInputInstances)item.position();});};
+document.addEventListener('scroll',positionModelInputs,true);window.addEventListener('resize',positionModelInputs);
+
+// Async management rows use the same select control as the initial page.
+(() => {
+  const observer=new MutationObserver(records=>{
+    const roots=new Set(),selects=new Set();
+    for(const record of records){
+      const select=record.target instanceof Element?record.target.closest('select'):null;if(select)selects.add(select);
+      for(const node of record.addedNodes)if(node instanceof Element&&(node.matches('select')||node.querySelector('select')))roots.add(node);
+    }
+    for(const root of roots)if(root.isConnected)enhanceDialogSelects(root);
+    for(const select of selects)if(select.isConnected){if(select.dataset.customSelect!=='true')enhanceDialogSelects(select);else select.syncControl?.();}
+    for(const item of modelInputInstances)if(!item.holder.isConnected){if(item.holder.getRootNode() instanceof DocumentFragment)item.close();else item.destroy();}else if(!item.popup.hidden&&!item.holder.getClientRects().length)item.close();
+  });
+  observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['disabled','hidden','selected']});
+  enhanceDialogSelects(document);
+})();

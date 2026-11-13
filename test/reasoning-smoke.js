@@ -39,7 +39,7 @@ function listen() {
 async function run(provider, model, options = {}) {
   const events = [];
   const port = server.address().port;
-  const handle = runApiChat({ ...options, provider: { ...provider, baseUrl: `http://127.0.0.1:${port}${provider.baseUrl}` }, model, prompt: '测试', history: [] }, ev => events.push(ev));
+  const handle = runApiChat({ webAccess:false, ...options, provider: { ...provider, baseUrl: `http://127.0.0.1:${port}${provider.baseUrl}` }, model, prompt: '测试', history: [] }, ev => events.push(ev));
   assert.strictEqual(await handle.done, 0);
   return events;
 }
@@ -61,6 +61,12 @@ async function run(provider, model, options = {}) {
   assert.strictEqual(requests[3].reasoning_split, true);
   assert.deepStrictEqual(openaiEvents.filter(e => e.kind === 'thinkdelta').map(e => e.text), ['先', '分析']);
   assert.strictEqual(openaiEvents.some(e => e.kind === 'error'), false);
+  await run({name:'Anthropic',agent:'claude',baseUrl:'/anthropic',apiKey:'local-test-key'},'claude-sonnet-4-20250514',{effort:'none'});
+  assert.deepStrictEqual(requests.at(-1).thinking,{type:'disabled'},'none explicitly disables native Anthropic reasoning');
+  await run({name:'MiniMax',agent:'claude',protocol:'anthropic',baseUrl:'/anthropic',apiKey:'local-test-key'},'MiniMax-M3.1-Flash',{effort:'xhigh'});
+  assert.deepStrictEqual(requests.at(-1).thinking,{type:'adaptive'});assert.deepStrictEqual(requests.at(-1).output_config,{effort:'xhigh'});
+  await run({name:'MiniMax',agent:'codex',protocol:'openai',baseUrl:'/v1',apiKey:'local-test-key'},'MiniMax-M3.1-Flash',{effort:'max'});
+  assert.equal(requests.at(-1).reasoning_effort,'max');
   await new Promise(resolve => server.close(resolve));
   console.log('[reasoning] MiniMax thinking enable, tool-free chat, and cumulative delta checks passed');
 })().catch(error => {

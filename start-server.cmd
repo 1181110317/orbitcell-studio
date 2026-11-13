@@ -10,7 +10,7 @@ set "AH_START_EXIT=%ERRORLEVEL%"
 goto finish
 
 :directory_error
-echo [ERROR] 无法进入 AgentHub 所在目录：%~dp0
+echo [ERROR] 无法进入 OrbitCell 所在目录：%~dp0
 set "AH_START_EXIT=1"
 goto finish
 

@@ -2,7 +2,7 @@ const assert = require('node:assert/strict');
 const { runApiAgent, runApiChat } = require('../lib/api-agent');
 let failures = 0;
 const originalFetch = global.fetch;
-const options = { prompt: 'test', model: 'audit-model', provider: { protocol: 'openai', baseUrl: 'http://audit.invalid', apiKey: 'test' }, autoPerms: true, sessionKey: 'audit' };
+const options = { prompt: 'test', model: 'audit-model', provider: { protocol: 'openai', baseUrl: 'http://audit.invalid', apiKey: 'test' }, autoPerms: true, externalMcp: false, sessionKey: 'audit' };
 const sse = (delta, usage) => new Response('data: ' + JSON.stringify({ choices: [{ delta }], usage }) + '\n\ndata: [DONE]\n\n');
 const tool = args => ({ tool_calls: [{ index: 0, id: 'call_test', function: { name: 'todo_write', arguments: args } }] });
 async function check(name, fn) {
@@ -20,6 +20,27 @@ async function check(name, fn) {
     await check('chat-only rejected tool request returns failure', async () => {
       global.fetch = async () => sse(tool('{"todos":[]}'));
       assert.notEqual(await runApiChat(options, () => {}).done, 0);
+    });
+    await check('chat final answer retries another key without restarting web research', async () => {
+      const payloads=[],events=[];
+      global.fetch = async (url,request) => {
+        const payload=JSON.parse(request.body);payloads.push(payload);
+        if(payloads.length<=2)return sse({tool_calls:[{index:0,id:'web-'+payloads.length,function:{name:'web_fetch',arguments:'{"url":"http://127.0.0.1/blocked-fixture"}'}}]});
+        if(payloads.length===3)return new Response('rate limited',{status:429});
+        return sse({content:'Collected results are incomplete; no verified web source is available.'});
+      };
+      const code=await runApiChat({...options,provider:{...options.provider,apiKeys:['backup-test-key']}},event=>events.push(event)).done;
+      assert.equal(code,0);assert.equal(payloads.length,4);
+      for(const payload of payloads.slice(2))assert(!payload.tools?.length||payload.tool_choice==='none','final-answer retries cannot re-enable web tools');
+      assert.equal(events.filter(e=>e.kind==='tooloutput').length,2,'key rotation never resumes web calls');
+      assert.equal(events.filter(e=>e.kind==='status'&&/正在根据已有资料整理回答/.test(e.text)).length,1);
+      assert.equal(events.filter(e=>e.kind==='request-usage').length,4,'the failed request and its retry are counted independently');
+    });
+    await check('cancelling at the research handoff does not start another request', async () => {
+      let calls=0,handle;
+      global.fetch=async()=>{calls++;return sse({tool_calls:[{index:0,id:'web-'+calls,function:{name:'web_fetch',arguments:'{"url":"http://127.0.0.1/blocked-fixture"}'}}]});};
+      handle=runApiChat(options,event=>{if(event.kind==='status'&&/正在根据已有资料整理回答/.test(event.text))handle.cancel();});
+      assert.equal(await handle.done,1);assert.equal(calls,2);
     });
     await check('context reflects the last request while billing sums all requests', async () => {
       let n = 0;

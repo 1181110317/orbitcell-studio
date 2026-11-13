@@ -1,0 +1,15 @@
+'use strict';
+const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
+const text=fs.readFileSync(path.resolve(__dirname,'../../public/app.js'),'utf8');
+const source=(start,end)=>text.slice(text.indexOf(start),text.indexOf(end,text.indexOf(start)));
+let session={cwd:''};const S={defaultWorkspace:'C:\\User Workspace\\OrbitCell'};
+const ui=vm.runInNewContext(source('function previewWorkingDirectory(', '\nfunction officeMediaUrlFor(')+source('function officeMediaUrlFor(', '\nfunction previewTargetFor(')+source('function previewDisplayPath(', '\nfunction showFilePreview(')+';({previewWorkingDirectory,previewDisplayPath,rawFileUrl,officeMediaUrlFor})',{curSession:()=>session,S,storageGet:()=>''});
+const query=()=>new URL(ui.rawFileUrl('pelican-bike.html'),'http://fixture.invalid').searchParams;
+assert.equal(query().get('cwd'),S.defaultWorkspace,'blank local cwd uses the configured workspace rather than the backend installation directory');
+assert.equal(ui.previewDisplayPath('pelican-bike.html'),'C:\\User Workspace\\OrbitCell\\pelican-bike.html');
+assert.equal(ui.previewDisplayPath('C:/Elsewhere/file.html'),'C:/Elsewhere/file.html','explicit absolute paths retain their target');
+assert.equal(new URL(ui.officeMediaUrlFor('slides.pptx')('image1.png'),'http://fixture.invalid').searchParams.get('cwd'),S.defaultWorkspace);
+session={cwd:'D:\\Project'};assert.equal(query().get('cwd'),'D:\\Project');assert.equal(ui.previewDisplayPath('./folder/a.html'),'D:\\Project\\folder\\a.html');
+session={remoteHostId:'host-test',cwd:''};assert.equal(query().get('cwd'),null,'an unspecified remote cwd never gains a local workspace');assert.equal(query().get('host'),'host-test');assert.equal(ui.previewDisplayPath('image.html'),'image.html');assert.equal(ui.officeMediaUrlFor('slides.pptx'),null);
+session={remoteHostId:'host-test',cwd:'/home/user/CaseSensitive'};assert.equal(ui.previewDisplayPath('file.html'),'/home/user/CaseSensitive/file.html');assert.equal(query().get('cwd'),'/home/user/CaseSensitive');
+session={remoteHostId:'wsl',cwd:'/home/user/project'};assert.equal(query().get('host'),'wsl');assert.equal(ui.previewDisplayPath('file.html'),'/home/user/project/file.html');

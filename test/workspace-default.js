@@ -1,4 +1,4 @@
-// 工作目录兜底：会话没指定目录时必须落到默认工作区，绝不能是 AgentHub 的
+// 工作目录兜底：会话没指定目录时必须落到默认工作区，绝不能是 OrbitCell 的
 // 安装目录。这是「Agent 生成的文件全堆在仓库里、越用越乱」的根因，
 // 用动态断言 + 静态契约两道锁住。
 const assert = require('assert');
@@ -23,7 +23,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
     assert.notEqual(path.resolve(dir), path.resolve(ROOT), '默认工作区不能是安装目录');
     assert.notEqual(path.resolve(dir), path.resolve(process.cwd()), '默认工作区不能是进程当前目录');
     assert(fs.existsSync(dir) && fs.statSync(dir).isDirectory(), '默认工作区要按需创建出来');
-    assert.equal(path.resolve(dir), path.resolve(path.join(os.homedir(), 'AgentHub')), '默认应落在 ~/AgentHub');
+    assert.equal(path.resolve(dir), path.resolve(path.join(os.homedir(), 'OrbitCell')), '默认应落在 ~/OrbitCell');
     console.log('  ✓ 默认工作区 ' + dir);
 
     // 模块内缓存了结果，覆盖只能在新进程里验证
@@ -62,7 +62,7 @@ const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
       try { healthy = (await fetch(BASE + '/api/health')).ok; if (healthy) break; } catch {}
       await sleep(250);
     }
-    assert(healthy, 'AgentHub 未启动');
+    assert(healthy, 'OrbitCell 未启动');
     const health = await (await fetch(BASE + '/api/health')).json();
     assert.equal(path.resolve(String(health.defaultWorkspace)), path.resolve(dir), '/api/health 要暴露默认工作区，界面才能说明文件会落在哪');
     console.log('  ✓ /api/health 暴露 defaultWorkspace');

@@ -54,3 +54,45 @@ assert.equal(claudeEvents.filter(e=>e.kind==='files').length, 0, 'failed writes 
 sendClaude('user', [{ type:'tool_result', tool_use_id:'write-ok', content:'created' }]);
 assert.deepEqual(claudeEvents.filter(e=>e.kind==='files').flatMap(e=>e.files).map(f=>f.path), ['ok.md']);
 console.log('[dsh-adapter] only successful Claude file writes are recorded');
+
+const nativeModels=require('../lib/agent-models');
+const catalog=nativeModels.dshCatalog(`
+- id: agent-default-model
+  name: '@deepseek-ai/dsh-agent-default-model'
+  config: {provider: route-a, model: native/model-a}
+- id: llm-pi-ai
+  name: '@deepseek-ai/dsh-llm-pi-ai'
+  config:
+    providers:
+      route-a: {apiKeyEnv: PRIVATE_REFERENCE, models: [{id: native/model-a, name: Model A}]}
+      route-b: {models: [{id: native/model-a, name: Model A elsewhere}]}
+- id: inert-expression
+  config: {value: !!js process.exit(99)}
+`);
+assert.equal(catalog.models.length,2);assert.equal(catalog.models[0].id,'route-a/native/model-a');
+assert(!JSON.stringify(catalog).includes('PRIVATE_REFERENCE'),'native catalogs never return credential references');
+assert.deepEqual(JSON.parse(nativeModels.dshPatch('route-b/native/model-a'))[0].config,{provider:'route-b',model:'native/model-a'});
+const sharedPatch=JSON.parse(nativeModels.dshPatch('shared-model',{baseUrl:'https://api.example.test/v1',apiKey:'test-secret',protocol:'openai'}));
+assert.equal(sharedPatch[0].config.providers.agenthub.baseURL,'https://api.example.test/v1');
+assert.equal(sharedPatch[0].config.providers.agenthub.api,'openai-completions');
+assert(!JSON.stringify(sharedPatch).includes('test-secret'),'DSH overlays use an environment reference instead of persisting the API key');
+assert.deepEqual(nativeModels.dshArgs({cliSessionId:'resume-me',dshPatchFile:'/tmp/session.json'}),['headless','--patch','/tmp/session.json','--json','--session-id','resume-me','-']);
+assert.throws(()=>nativeModels.dshSelection('missing-provider'),/提供方/);
+console.log('[dsh-adapter] native catalogs, shared API overlays and resumed model arguments passed');
+
+assert.deepEqual(nativeModels.dshArgs({dshPermission:'read-only'}),['headless','--json','--permission-mode','read-only','--approval-policy','never','-']);
+assert.deepEqual(nativeModels.dshArgs({dshPermission:'default'}),['headless','--json','-']);
+assert.throws(()=>nativeModels.dshArgs({dshPermission:'auto'}),/预设/);
+const highPatch=JSON.parse(nativeModels.dshPatch('reasoner',{baseUrl:'http://127.0.0.1:1/v1',protocol:'openai'},'high'));
+assert.equal(highPatch[1].config.reasoningEffort,'high');assert.equal(highPatch[0].config.providers['agenthub-high'].models[0].reasoningEfforts.high,'high');
+const ultraPatch=JSON.parse(nativeModels.dshPatch('reasoner',{baseUrl:'http://127.0.0.1:1/v1',protocol:'openai'},'ultra'));
+assert.equal(ultraPatch[1].config.reasoningEffort,'max');assert.equal(ultraPatch[0].config.providers['agenthub-ultra'].models[0].reasoningEfforts.max,'ultra');
+assert.notEqual(highPatch[1].config.provider,sharedPatch[1].config.provider,'resetting effort uses a new route so resumed headless runs cannot reuse stale effort');
+console.log('[dsh-adapter] native permission flags and reasoning selection/wire mapping passed');
+
+const nativeProfile=JSON.stringify([{id:'agent-default-model',config:{provider:'native',model:'reasoner'}},{id:'llm-pi-ai',name:'@deepseek-ai/dsh-llm-pi-ai',config:{providers:{native:{api:'openai-completions',apiKeyEnv:'NATIVE_AUTH_REF',baseURL:'http://127.0.0.1:1/v1',models:[{id:'reasoner',reasoningEfforts:{low:'low',high:'high'}}]}}}}]);
+const nativeHigh=JSON.parse(nativeModels.dshProfilePatch(nativeProfile,'native/reasoner','high'));
+const nativeDefault=JSON.parse(nativeModels.dshProfilePatch(nativeProfile,'native/reasoner',''));
+assert.notEqual(nativeHigh[1].config.provider,nativeDefault[1].config.provider);assert.equal(nativeHigh[1].config.reasoningEffort,'high');
+assert.equal(nativeDefault[0].config.providers[nativeDefault[1].config.provider].apiKeyEnv,'NATIVE_AUTH_REF');
+assert.equal(nativeDefault[1].config.reasoningEffort,undefined);console.log('[dsh-adapter] native effort aliases preserve auth references and clear resumed strength');

@@ -71,11 +71,12 @@ const dialogText = () => ev(`document.getElementById('confirmMsg').textContent`)
     const status = await (await fetch(BASE + '/api/browser/status')).json();
     if (!status.browser) { console.log('[ws-files-ui] browser unavailable, skipped'); return; }
     await browser('open', { url: BASE + '/' });
-    await ev(`(async()=>{ for(let i=0;i<200 && !(typeof S !== 'undefined' && S.settings);i++) await new Promise(r=>setTimeout(r,80)); return true; })()`);
+    await ev(`(async()=>{ for(let i=0;i<200 && !(typeof S !== 'undefined' && S.wsReady && S.agents.length && S.settings);i++) await new Promise(r=>setTimeout(r,80)); return true; })()`);
     await ev(`(async()=>{ await openSession(${JSON.stringify(session.id)}); return true; })()`);
 
     await check('文件 tab 打开后列出工作区条目（目录在前）', async () => {
       const out = await ev(`(async()=>{
+        setReviewLayout('tabs');
         openWorkspaceFilesTab();
         for(let i=0;i<60 && !document.querySelector('#reviewDiff .ws-row');i++) await new Promise(r=>setTimeout(r,80));
         const rows=[...document.querySelectorAll('#reviewDiff .ws-row')];
@@ -101,7 +102,7 @@ const dialogText = () => ev(`document.getElementById('confirmMsg').textContent`)
         const fresh=[...document.querySelectorAll('#reviewDiff .ws-row')].find(r=>r.dataset.wsPath==='src');
         const child=document.querySelector('#reviewDiff .ws-row[data-ws-path="src/main.js"]');
         const parentBox=fresh?.getBoundingClientRect(), childBox=child?.getBoundingClientRect();
-        return { child: !!child, open: fresh ? fresh.classList.contains('open') : false,
+        return { child: !!child, open: fresh?.querySelector('[data-ws-main]')?.getAttribute('aria-expanded')==='true',
           below: !!childBox && childBox.top >= parentBox.bottom - 1,
           sameWidth: !!childBox && Math.abs(childBox.width-parentBox.width)<2,
           indented: !!child && parseFloat(getComputedStyle(child).paddingLeft)>parseFloat(getComputedStyle(fresh).paddingLeft) };
@@ -153,7 +154,7 @@ const dialogText = () => ev(`document.getElementById('confirmMsg').textContent`)
     });
 
     await check('新建文件（走真实弹窗）后出现在树里', async () => {
-      await ev(`(async()=>{ const tree=document.querySelector('#reviewDiff .ws-tree'); if(!tree){ const s=document.getElementById('wsSearch'); s.value=''; s.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(r=>setTimeout(r,300)); } document.getElementById('wsNewFile').click(); return true; })()`);
+      await ev(`(async()=>{ const tree=document.querySelector('#reviewDiff .ws-tree'); if(!tree){ const s=document.getElementById('wsSearch'); s.value=''; s.dispatchEvent(new Event('input',{bubbles:true})); await new Promise(r=>setTimeout(r,300)); } wsFiles.selected='';wsFiles.focusRel='';document.getElementById('wsNewFile').click(); return true; })()`);
       const dialog = await dialogAccept('created-by-ui.txt');
       assert(dialog.shown, 'new-file dialog should appear');
       await sleep(600);

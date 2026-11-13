@@ -58,7 +58,7 @@ function termEcho(hostId) {
 function cancelledStartup(sessionId) {
   return new Promise((resolve,reject)=>{
     const ws=new WebSocket(`ws://127.0.0.1:${PORT}/ws`),events=[];let cancelledAt=0;
-    const timer=setTimeout(()=>{ws.close();reject(new Error('cancelled startup did not finish'));},5000);
+    const timer=setTimeout(()=>{ws.close();reject(new Error('cancelled startup did not finish: '+JSON.stringify(events.map(m=>({type:m.type,kind:m.ev?.kind,text:m.ev?.text,error:m.error}))).slice(0,1200)));},5000);
     ws.on('error',reject);
     ws.on('open',()=>ws.send(JSON.stringify({type:'chat',sessionId,clientId:'ssh-startup-cancel',text:'isolated cancellation test'})));
     ws.on('message',raw=>{
@@ -92,7 +92,7 @@ function cancelledStartup(sessionId) {
           const stream = acceptExec();
           if (info.command === 'AH_HOLD') { stream.write('ready\n'); return; }
           if (info.command === 'AH_DROP_RUNNING') { stream.write('before disconnect\n'); setTimeout(() => client.end(), 40); return; }
-          if (info.command.includes('find ') && info.command.includes('large-files') && SHELL) {
+          if ((info.command.includes('find ') || info.command.startsWith('base64 < ')) && info.command.includes('large-files') && SHELL) {
             execFile(SHELL,['-c',info.command],{cwd:DATA,windowsHide:true,timeout:20000,maxBuffer:1024*1024},(error,stdout,stderr)=>{
               if(stdout)stream.write(stdout);if(stderr)stream.stderr.write(stderr);
               stream.exit(error?Number(error.code)||1:0);stream.end();
@@ -139,7 +139,7 @@ function cancelledStartup(sessionId) {
       try { healthy = (await api('/api/health')).code === 200; if (healthy) break; } catch {}
       await sleep(250);
     }
-    assert(healthy, 'AgentHub did not start');
+    assert(healthy, 'OrbitCell did not start');
     silentServer=net.createServer(socket=>{silentSockets.add(socket);socket.on('error',()=>{});socket.on('close',()=>silentSockets.delete(socket));});
     await new Promise(resolve=>silentServer.listen(0,'127.0.0.1',resolve));
     const silentHost=await api('/api/ssh/hosts','POST',{name:'Silent handshake',host:'127.0.0.1',port:silentServer.address().port,user:'probe',authType:'password',password:'probe-password'});
@@ -185,6 +185,15 @@ function cancelledStartup(sessionId) {
       assert.equal(missing.code,400);assert.match(missing.data.error,/目录不存在或不可读/);
       const empty = path.join(FILES_ROOT,'empty');fs.mkdirSync(empty);
       assert.deepEqual(await api('/api/fs/files?host='+id+'&path='+encodeURIComponent(empty)),{code:200,data:{files:[]}});
+      const previewPath = path.join(FILES_ROOT,"quoted ' 中文.txt");fs.writeFileSync(previewPath,'SSH_PREVIEW_OK 中文');
+      const preview = await api('/api/fs/raw?host='+id+'&path='+encodeURIComponent(previewPath));
+      assert.equal(preview.code,200,JSON.stringify(preview.data));assert.equal(preview.data.text,'SSH_PREVIEW_OK 中文','SSH previews preserve quotes, spaces and Unicode');
+      const emptyText = path.join(FILES_ROOT,'empty.txt');fs.writeFileSync(emptyText,'');
+      const emptyPreview = await api('/api/fs/raw?host='+id+'&path='+encodeURIComponent(emptyText));
+      assert.equal(emptyPreview.code,200,JSON.stringify(emptyPreview.data));assert.equal(emptyPreview.data.text,'','a readable empty text file is not a remote command failure');
+      const absentPath = path.join(FILES_ROOT,'missing-preview.txt');
+      const absentPreview = await api('/api/fs/raw?host='+id+'&path='+encodeURIComponent(absentPath));
+      assert.equal(absentPreview.code,404,JSON.stringify(absentPreview.data));assert.equal(absentPreview.data.code,'FILE_NOT_FOUND');assert(absentPreview.data.error.includes(absentPath),'remote read errors retain the requested path');
       console.log('[ssh-loopback] actual POSIX shell: 1000 files bounded to 400, missing directory refused, empty directory accepted');
     } else console.log('[ssh-loopback] POSIX file-list execution skipped: Git Bash unavailable');
 

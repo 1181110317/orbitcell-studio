@@ -13,7 +13,7 @@ const run = (cwd, args) => execFileSync('git', args, { cwd, encoding: 'utf8', wi
 (async () => {
   try {
     run(repo, ['init', '-q']);
-    run(repo, ['config', 'user.name', 'AgentHub Test']);
+    run(repo, ['config', 'user.name', 'OrbitCell Test']);
     run(repo, ['config', 'user.email', 'test@example.invalid']);
     fs.writeFileSync(path.join(repo, 'tracked.txt'), 'before\n');
     run(repo, ['add', '-A']);

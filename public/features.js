@@ -41,17 +41,25 @@
         session.remoteHostId ? Promise.resolve({ skills: [] }) : api('/api/skills?all=1&cwd=' + encodeURIComponent(session.cwd || '')),
       ]);
       if (!guard()) return;
-      const r = info.runtime || {};
+      let r = info.runtime || {};
+      if(nativeAcpControls(session.agent) && !session.remoteHostId && !(r.configOptions||[]).length){
+        try{
+          const native=await api('/api/agents/'+encodeURIComponent(session.agent)+'/models?'+new URLSearchParams({sessionId:sid,cwd:session.cwd||'',model:session.model||''}),{timeoutMs:26000});
+          r={...r,protocol:'acp',capabilities:native.capabilities||r.capabilities,modes:native.modes||r.modes,configOptions:native.configOptions||[],controlsError:native.controlsError||'',models:{currentModelId:native.currentModelId,availableModels:native.models.map(item=>({modelId:item.id,name:item.name||item.id}))}};
+        }catch(error){r={...r,controlsError:error.message};}
+        if(!guard())return;
+      }
       const selected = info.skillSelection;
       const skills = catalog.skills || [];
-      const configs = (r.configOptions || []).filter(o => o.type === 'select');
+      const configs = (r.configOptions || []).filter(o => o.type === 'select' && o.category!=='model');
       const options = o => (o.options || []).flatMap(v => v.options || [v]);
       $('#dlgBody').innerHTML = `<div class="feature-intro"><b>${esc(session.title || '当前会话')}</b><p>配置在下一回合生效。原生目录由 Agent 初始化返回。</p></div>
         <div class="feature-columns"><section class="feature-panel"><h3>本会话技能</h3><label class="setting-check"><input type="checkbox" id="runtimeSkillAuto" ${selected === null ? 'checked' : ''}> 使用全部启用技能</label>
         <div class="feature-checklist">${skills.length ? skills.map(s => `<label class="feature-check"><input type="checkbox" data-runtime-skill="${esc(s.name)}" ${selected === null || selected.includes(s.name) ? 'checked' : ''} ${!s.enabled ? 'disabled' : ''}><span><b>${esc(s.name)}</b><small>${esc(s.description || '')}</small><em>${esc(s.source)} · ${esc(s.scope === 'project' ? '项目' : '全局')}${s.enabled ? '' : ' · 已停用'}</em></span></label>`).join('') : '<p class="dialog-note">没有可投递的本地技能。可在设置中导入技能；远程会话使用目标环境自己的技能。</p>'}</div>
         <p class="dialog-note">Claude/Codex 同时传递原生禁用规则；其他 CLI 的原生技能发现由该 CLI 管理。</p></section>
         <section class="feature-panel"><h3>Agent 能力</h3><div class="feature-facts"><span>协议</span><b>${esc(r.protocol || session.agent)}</b><span>助手投递</span><b>${r.assistantDelivery === 'context' ? '本轮上下文' : r.assistantDelivery === 'native' ? '原生提示词' : '等待首轮执行'}</b><span>恢复</span><b>${r.capabilities?.loadSession ? '支持原生恢复' : r.protocol === 'acp' ? 'Agent 未声明支持' : '按原生桥能力'}</b></div>
-        ${r.modes?.availableModes?.length ? `<div class="fld"><label for="runtimeAcpMode">ACP 模式</label><select id="runtimeAcpMode"><option value="">跟随 Agent</option>${r.modes.availableModes.map(m => `<option value="${esc(m.id)}" ${m.id === (session.acpMode || r.modes.currentModeId) ? 'selected' : ''}>${esc(m.name || m.id)}</option>`).join('')}</select></div>` : ''}
+        ${r.controlsError?`<p class="feature-error" role="status">原生配置读取失败：${esc(r.controlsError)}</p>`:''}
+        ${r.modes?.availableModes?.length && !configs.some(o=>o.category==='mode') ? `<div class="fld"><label for="runtimeAcpMode">ACP 模式</label><select id="runtimeAcpMode"><option value="">跟随 Agent</option>${r.modes.availableModes.map(m => `<option value="${esc(m.id)}" ${m.id === (session.acpMode || r.modes.currentModeId) ? 'selected' : ''}>${esc(m.name || m.id)}</option>`).join('')}</select></div>` : ''}
         ${r.models?.availableModels?.length ? `<div class="fld"><label for="runtimeAcpModel">ACP 模型</label><select id="runtimeAcpModel">${r.models.availableModels.map(m => `<option value="${esc(m.modelId)}" ${m.modelId === (session.model || r.models.currentModelId) ? 'selected' : ''}>${esc(m.name || m.modelId)}</option>`).join('')}</select></div>` : ''}
         ${configs.map((o, i) => `<div class="fld"><label for="runtimeConfig${i}">${esc(o.name || o.id)}</label><select id="runtimeConfig${i}" data-runtime-config="${esc(o.id)}">${options(o).map(v => `<option value="${esc(v.value)}" ${v.value === (session.acpConfig?.[o.id] || o.currentValue) ? 'selected' : ''}>${esc(v.name || v.value)}</option>`).join('')}</select></div>`).join('')}
         <h3>原生命令</h3><div class="feature-checklist">${(r.commands || []).length ? r.commands.map(c => `<button type="button" class="feature-command" data-runtime-command="${esc(c.name)}"><b>/${esc(c.name)}</b><span>${esc(c.description || '')}</span></button>`).join('') : '<p class="dialog-note">初始化后会展示 Agent 返回的命令。</p>'}</div></section></div>
@@ -70,11 +78,15 @@
         const patch = { skillSelection: $('#runtimeSkillAuto').checked ? null : $$('#dlgBody [data-runtime-skill]').filter(e => e.checked && !e.disabled).map(e => e.dataset.runtimeSkill) };
         if ($('#runtimeAcpMode')) patch.acpMode = $('#runtimeAcpMode').value;
         if ($('#runtimeAcpModel')) patch.model = $('#runtimeAcpModel').value;
-        if (configs.length) patch.acpConfig = Object.fromEntries($$('#dlgBody [data-runtime-config]').map(e => [e.dataset.runtimeConfig, e.value]));
+        if (configs.length) {
+          patch.acpConfig = Object.fromEntries($$('#dlgBody [data-runtime-config]').map(e => [e.dataset.runtimeConfig, e.value]));
+          const thought=configs.find(o=>o.category==='thought_level'||/^(?:reasoning[_-]?effort|thinking[_-]?level|thought[_-]?level|effort)$/i.test(o.id));
+          if(thought){const value=patch.acpConfig[thought.id]==='off'?'none':patch.acpConfig[thought.id];patch.effort=window.AgentHubModelPicker.order.includes(value)?value:'';}
+        }
         const saved = await api('/api/sessions/' + encodeURIComponent(sid), { method: 'PATCH', body: patch });
         const i = S.sessions.findIndex(s => s.id === sid);
         if (i >= 0) S.sessions[i] = { ...S.sessions[i], ...saved };
-        if (guard()) { toast('运行配置已保存，下回合生效', 'ok'); closeDlg(); renderHeader(); }
+        if (guard()) { toast('运行配置已保存，下回合生效', 'ok'); closeDlg(); renderHeader(); renderComposer(curSession()); }
         } catch (e) { if (guard()) toast(e.message, 'err'); }
       }, '保存中…');
     } catch (e) { if (guard()) $('#dlgBody').innerHTML = `<div class="feature-error" role="alert">${esc(e.message)}</div>`; }

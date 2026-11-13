@@ -14,9 +14,9 @@ const { runAgent } = require('../lib/agents');
     for (const argPrompt of [false, true]) {
       const events = [];
       const custom = { id: 'audit-custom', bin: process.execPath, args: JSON.stringify(script), argPrompt };
-      const handle = await runAgent({ agent: custom.id, custom, prompt: '你好 AgentHub', cwd: work, settings: {} }, event => events.push(event));
+      const handle = await runAgent({ agent: custom.id, custom, prompt: '你好 OrbitCell', cwd: work, settings: {} }, event => events.push(event));
       assert.equal(await handle.done, 0, JSON.stringify(events));
-      assert(events.some(event => event.kind === 'text' && event.text.includes('CUSTOM_OK:你好 AgentHub')), JSON.stringify(events));
+      assert(events.some(event => event.kind === 'text' && event.text.includes('CUSTOM_OK:你好 OrbitCell')), JSON.stringify(events));
       console.log(`  ✓ custom CLI ${argPrompt ? 'argument' : 'stdin'} prompt`);
     }
     const splitScript = path.join(work, 'split-utf8.js');

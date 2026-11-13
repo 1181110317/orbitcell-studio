@@ -271,7 +271,7 @@ const get = p => body(p, {});
         if (r.data && r.data.value === true) break;
         await new Promise(res => setTimeout(res, 500));
       }
-      let cnt1 = cnt0;
+      let cnt1 = cnt0, chooserOpened = false;
       let lastDispatch = '';
       for (let i = 0; i < 30; i++) {
         await new Promise(r => setTimeout(r, 600));
@@ -286,13 +286,15 @@ const get = p => body(p, {});
         });
         lastDispatch = (d.data && d.data.value) || (d.data && d.data.error) || '';
         cnt1 = (await get('/api/sessions')).data.length;
-        if (cnt1 > cnt0) break;
+        const chooser = await post('/api/browser/evaluate', { expression: `!!document.querySelector('.new-task-chooser [data-task-agent]')` });
+        chooserOpened = chooser.data?.value === true;
+        if (chooserOpened) break;
       }
-      if (cnt1 <= cnt0) {
+      if (!chooserOpened) {
         const diag = await post('/api/browser/evaluate', { expression: `(() => ({ keybindings: (typeof S!=='undefined'&&S.settings&&S.settings.keybindings)||null, agent: (typeof S!=='undefined'&&S.curAgent)||'', errs: (window.__r6errs||[]) }))()` });
         console.error('    [debug] 快捷键未生效: lastDispatch=' + lastDispatch, 'diag=', JSON.stringify(diag.data && diag.data.value).slice(0, 300));
       }
-      ok(cnt1 > cnt0, 'UI：自定义快捷键 alt+t 真实触发新建任务（' + cnt0 + ' → ' + cnt1 + '）');
+      ok(chooserOpened && cnt1 === cnt0, 'UI：自定义快捷键 alt+t 打开 Agent 选择器，发送前不创建空会话');
       await put('/api/settings', { keybindings: {} });
 
       await post('/api/browser/close', {});

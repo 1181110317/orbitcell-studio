@@ -82,14 +82,14 @@ const frameEval = src => evaluate(`document.getElementById('r7fixture').contentW
 
     // ---- 2. bindEvents() is idempotent (doLogin re-runs boot) ----
     const toggle = await frameEval(`(()=>{
-      const btn = document.querySelector('.turn-summary[data-turntoggle="1"]');
+      const btn = document.querySelector('.tool-group>summary');
       if (!btn) return { missing: true };
-      const panel = btn.closest('.turn') ? btn.closest('.turn').querySelector('.turn-process') : null;
+      const panel = btn.closest('details');
       if (!panel) return { missing: 'panel' };
-      const before = panel.hidden;
+      const before = panel.open;
       bindEvents(); bindEvents();          // 模拟登录后 boot() 重跑
       btn.click();
-      const after = panel.hidden;
+      const after = panel.open;
       return { before, after, changed: before !== after };
     })()`);
     ok(toggle.changed === true, 'a single click still toggles the process panel after re-binding', toggle);

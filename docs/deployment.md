@@ -1,6 +1,6 @@
 # Deployment
 
-AgentHub is a Node.js server with a static front end. There is no build step and no external database service to install.
+OrbitCell is a Node.js server with a static front end. There is no build step and no external database service to install.
 
 ## Quick start
 
@@ -19,8 +19,8 @@ Agent CLIs must be on `PATH` (or configured in Settings → Agents) for Claude C
 ### Install and run
 
 ```bash
-git clone https://github.com/1181110317/agenthub.git
-cd agenthub
+git clone https://github.com/1181110317/orbitcell-studio.git
+cd orbitcell-studio
 npm install
 npm start
 ```
@@ -38,34 +38,34 @@ Double-click **`start-server.cmd`** to start the server with:
 - live server errors
 - output appended to `data/logs/server.log`
 
-Set `AGENTHUB_NO_PAUSE=1` when launching from a scheduler or another unattended process.
+Set `ORBITCELL_NO_PAUSE=1` when launching from a scheduler or another unattended process.
 
 ### First-run setup
 
-1. Open **Settings → API management** and add a provider, or point AgentHub at a running Magpie gateway.
+1. Open **Settings → API management** and add a provider, or point OrbitCell at a running Magpie gateway.
 2. Pick an agent in the sidebar (Built-in Agent is a good first test).
 3. Choose a project directory in the composer.
 4. Send a short prompt. Agent CLIs must be installed and discoverable for the non-built-in agents.
 
 ## LAN / phone access
 
-Binding to all interfaces requires an access token. AgentHub refuses to start on a non-loopback address when no token or account authentication is configured.
+Binding to all interfaces requires an access token. OrbitCell refuses to start on a non-loopback address when no token or account authentication is configured.
 
 ### Bash / macOS / Linux
 
 ```bash
-AGENTHUB_HOST=0.0.0.0 \
-AGENTHUB_TOKEN='choose-a-long-random-secret' \
-AGENTHUB_PORT=7261 \
+ORBITCELL_HOST=0.0.0.0 \
+ORBITCELL_TOKEN='choose-a-long-random-secret' \
+ORBITCELL_PORT=7261 \
 npm start
 ```
 
 ### PowerShell
 
 ```powershell
-$env:AGENTHUB_HOST = '0.0.0.0'
-$env:AGENTHUB_TOKEN = 'choose-a-long-random-secret'
-$env:AGENTHUB_PORT = '7261'
+$env:ORBITCELL_HOST = '0.0.0.0'
+$env:ORBITCELL_TOKEN = 'choose-a-long-random-secret'
+$env:ORBITCELL_PORT = '7261'
 npm start
 ```
 
@@ -74,35 +74,35 @@ Open `http://<your-computer-ip>:7261/?token=choose-a-long-random-secret` on the 
 Notes:
 
 - Allow TCP port `7261` through the Windows firewall if the phone cannot connect.
-- Use a **read-only token** (`AGENTHUB_RO_TOKEN`) on devices that only need to watch progress. Read-only clients cannot send messages, approve permissions, open terminals or change settings.
+- Use a **read-only token** (`ORBITCELL_RO_TOKEN`) on devices that only need to watch progress. Read-only clients cannot send messages, approve permissions, open terminals or change settings.
 - Prefer a private LAN or VPN. Do not expose a plain-HTTP port to the public internet.
-- If the page loads but API calls fail with `Host 不受信任`, set `AGENTHUB_ALLOWED_HOSTS` (see below).
+- If the page loads but API calls fail with `Host 不受信任`, set `ORBITCELL_ALLOWED_HOSTS` (see below).
 
 ## Reverse proxy and HTTPS
 
-For a domain such as `agenthub.example.com`, keep AgentHub on loopback and let a reverse proxy terminate TLS.
+For a domain such as `orbitcell.example.com`, keep OrbitCell on loopback and let a reverse proxy terminate TLS.
 
 Set:
 
 ```bash
-AGENTHUB_HOST=127.0.0.1
-AGENTHUB_PORT=7261
-AGENTHUB_TOKEN='choose-a-long-random-secret'
-AGENTHUB_ALLOWED_HOSTS=agenthub.example.com
-AGENTHUB_PUBLIC_URL=https://agenthub.example.com
+ORBITCELL_HOST=127.0.0.1
+ORBITCELL_PORT=7261
+ORBITCELL_TOKEN='choose-a-long-random-secret'
+ORBITCELL_ALLOWED_HOSTS=orbitcell.example.com
+ORBITCELL_PUBLIC_URL=https://orbitcell.example.com
 ```
 
-`AGENTHUB_PUBLIC_URL` is used to build the OAuth callback URL for MCP servers. `AGENTHUB_ALLOWED_HOSTS` accepts comma- or semicolon-separated Host names.
+`ORBITCELL_PUBLIC_URL` is used to build the OAuth callback URL for MCP servers. `ORBITCELL_ALLOWED_HOSTS` accepts comma- or semicolon-separated Host names.
 
 ### Nginx
 
 ```nginx
 server {
     listen 443 ssl http2;
-    server_name agenthub.example.com;
+    server_name orbitcell.example.com;
 
-    ssl_certificate     /etc/letsencrypt/live/agenthub.example.com/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/agenthub.example.com/privkey.pem;
+    ssl_certificate     /etc/letsencrypt/live/orbitcell.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/orbitcell.example.com/privkey.pem;
 
     location / {
         proxy_pass http://127.0.0.1:7261;
@@ -121,7 +121,7 @@ The `Upgrade` and `Connection` headers are required for the WebSocket timeline a
 ### Caddy
 
 ```caddyfile
-agenthub.example.com {
+orbitcell.example.com {
     reverse_proxy 127.0.0.1:7261
 }
 ```
@@ -130,19 +130,19 @@ Caddy handles TLS and WebSocket upgrades automatically.
 
 ## Access control
 
-AgentHub has three access layers:
+OrbitCell has three access layers:
 
 | Layer | How it works | Best for |
 | --- | --- | --- |
 | **Loopback trust** | Requests from `127.0.0.1` are trusted; Host must be an IP literal, `localhost` or an allowed host | Desktop use |
-| **Shared token** | `AGENTHUB_TOKEN` in the URL, `x-agenthub-token` header, or browser storage after first visit | LAN, phone, simple reverse proxy |
+| **Shared token** | `ORBITCELL_TOKEN` in the URL, `x-agenthub-token` header, or browser storage after first visit | LAN, phone, simple reverse proxy |
 | **WebUI accounts** | Username/password login with httpOnly session cookie + CSRF header | People who prefer a login page over a shared link |
 
-Enable **Settings → Access control** from the local machine to create a WebUI account. Password changes rotate the signing key, so other devices must sign in again. Login attempts are rate-limited per IP. The shared `AGENTHUB_TOKEN` remains an operator channel when account login is enabled.
+Enable **Settings → Access control** from the local machine to create a WebUI account. Password changes rotate the signing key, so other devices must sign in again. Login attempts are rate-limited per IP. The shared `ORBITCELL_TOKEN` remains an operator channel when account login is enabled.
 
 Security checklist for an internet-facing deployment:
 
-- Terminate TLS at the reverse proxy and use a strong, unique `AGENTHUB_TOKEN`.
+- Terminate TLS at the reverse proxy and use a strong, unique `ORBITCELL_TOKEN`.
 - Restrict access with a VPN, firewall allowlist or identity-aware proxy where possible.
 - Do not expose the server on a public address without authentication.
 - Back up `data/` and the encryption key files before changing authentication settings.
@@ -150,16 +150,16 @@ Security checklist for an internet-facing deployment:
 
 ## Data directory and backups
 
-By default, runtime data lives in `data/` next to `server.js`. Move it with `AGENTHUB_DATA_DIR`:
+By default, runtime data lives in `data/` next to `server.js`. Move it with `ORBITCELL_DATA_DIR`:
 
 ```bash
-AGENTHUB_DATA_DIR=/var/lib/agenthub npm start
+ORBITCELL_DATA_DIR=/var/lib/agenthub npm start
 ```
 
 PowerShell:
 
 ```powershell
-$env:AGENTHUB_DATA_DIR = 'D:\AgentHubData'
+$env:ORBITCELL_DATA_DIR = 'D:\AgentHubData'
 npm start
 ```
 
@@ -222,19 +222,19 @@ If your environment uses systemd, this is a minimal unit. Adjust `ExecStart` if 
 
 ```ini
 [Unit]
-Description=AgentHub
+Description=OrbitCell
 After=network.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/agenthub
+WorkingDirectory=/opt/orbitcell-studio
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
 User=agenthub
-Environment=AGENTHUB_HOST=127.0.0.1
-Environment=AGENTHUB_PORT=7261
-Environment=AGENTHUB_DATA_DIR=/var/lib/agenthub
-# Environment=AGENTHUB_TOKEN=change-me
+Environment=ORBITCELL_HOST=127.0.0.1
+Environment=ORBITCELL_PORT=7261
+Environment=ORBITCELL_DATA_DIR=/var/lib/agenthub
+# Environment=ORBITCELL_TOKEN=change-me
 
 [Install]
 WantedBy=multi-user.target
@@ -246,7 +246,7 @@ Run `npm install` as the service user first, then `systemctl enable --now agenth
 
 1. Stop the server.
 2. Remove the project directory.
-3. Remove the data directory you configured (`data/` by default or `AGENTHUB_DATA_DIR`).
+3. Remove the data directory you configured (`data/` by default or `ORBITCELL_DATA_DIR`).
 4. Remove any reverse-proxy, firewall or service entries you added.
 
 There is no system-wide installer or registry footprint.

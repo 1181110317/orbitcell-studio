@@ -146,10 +146,10 @@ async function ready(fn, ms = 60000) { const end = Date.now() + ms; while (Date.
     await ev(`closeDlg();renderMessages([{role:'assistant',text:'已拟定计划',ts:123,plan:{plan:${JSON.stringify(planText)}}}]);true`);
     assert.equal(await ev('document.querySelectorAll("#messages .plan-card").length'), 1, 'a completed plan remains visible without tool/think steps');
     assert.equal(await ev('document.querySelectorAll("#messages .plan-card script").length'), 0);
-    await ev('window.__planBlob=URL.createObjectURL;window.__planClick=HTMLAnchorElement.prototype.click;URL.createObjectURL=blob=>{window.__downloadedPlan=blob;return window.__planBlob(blob)};HTMLAnchorElement.prototype.click=function(){window.__planFilename=this.download};document.querySelector("[data-plan-action=download]").click();true');
+    await ev('document.querySelector("[data-plan-action=open]").click();window.__planBlob=URL.createObjectURL;window.__planClick=HTMLAnchorElement.prototype.click;URL.createObjectURL=blob=>{window.__downloadedPlan=blob;return window.__planBlob(blob)};HTMLAnchorElement.prototype.click=function(){window.__planFilename=this.download};document.querySelector("[data-plan-reader-action=download]").click();true');
     assert.equal(await ev('window.__downloadedPlan.text()'), planText);
     assert.match(await ev('window.__planFilename'), /\.md$/);
-    await ev('URL.createObjectURL=window.__planBlob;HTMLAnchorElement.prototype.click=window.__planClick;document.querySelector("[data-plan-action=review]").click();true');
+    await ev('URL.createObjectURL=window.__planBlob;HTMLAnchorElement.prototype.click=window.__planClick;document.querySelector("[data-plan-reader-action=review]").click();true');
     await ready(() => ev('!!document.getElementById("planImplement")'));
     assert.equal(await ev('document.getElementById("planPermission").value'), 'edits', 'an implementation draft leaves planning-only mode');
     await ev('document.getElementById("planTitle").value="布局实施计划";window.__planFetch=window.fetch;window.fetch=(...args)=>String(args[0]).includes("/api/plans")&&args[1]?.method==="POST"?Promise.reject(new TypeError("fixture save unavailable")):window.__planFetch(...args);document.getElementById("planSave").click();true');

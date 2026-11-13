@@ -334,9 +334,9 @@ function gitAvailable() {
     ok(brStatus.code === 200 && typeof brStatus.data.enabled === 'boolean', 'GET /api/browser/status 返回状态与开关');
     if (brStatus.data.browser) {
       const opened = await post('/api/browser/open', { url: BASE + '/' });
-      ok(opened.code === 200 && opened.data.page && /AgentHub/.test(opened.data.page.title || ''), '受控浏览器：打开本机页面并返回标题');
+      ok(opened.code === 200 && opened.data.page && /OrbitCell/.test(opened.data.page.title || ''), '受控浏览器：打开本机页面并返回标题');
       const snap = await post('/api/browser/snapshot', {});
-      ok(snap.code === 200 && /AgentHub/.test((snap.data.page || {}).text || ''), '受控浏览器：快照返回可见文本');
+      ok(snap.code === 200 && /OrbitCell/.test((snap.data.page || {}).text || ''), '受控浏览器：快照返回可见文本');
       const typed = await post('/api/browser/type', { selector: '#searchBox', text: 'cdp-probe' });
       const readBack = await post('/api/browser/evaluate', { expression: "document.querySelector('#searchBox').value" });
       ok(typed.code === 200 && typed.data.ok === true && readBack.code === 200 && readBack.data.value === 'cdp-probe', '受控浏览器：输入并读回（type + evaluate）');
@@ -470,6 +470,7 @@ function gitAvailable() {
       // skills 菜单：$ 触发 → 列出项目的 skill → 选中插入 /名称
       const skillMenu = await post('/api/browser/evaluate', {
         expression: `(async () => {
+          closeDlg();await openSession(${JSON.stringify(imported.data.id)});
           const inp = document.getElementById('inpText');
           inp.value = '$probe';
           inp.focus();
@@ -614,12 +615,12 @@ function gitAvailable() {
         await post('/api/browser/evaluate', { expression: `(async () => {
           for (let i = 0; i < 40; i++) {
             const btn = document.getElementById('btnGit');
-            if (btn && btn.style.display !== 'none') {
+            if (btn && S.wsReady && curSession()?.id === ${JSON.stringify(imported.data.id)} && btn.style.display !== 'none') {
               btn.click();
               // The header now opens the requested compact changes popover;
               // enter the full workbench through its visible menu action.
               for (let j = 0; j < 40; j++) {
-                const full = [...document.querySelectorAll('#flyMenu .fly-item')].find(el => el.textContent.includes('打开项目变更中心'));
+                const full = document.querySelector('#flyMenu [data-changes-full]') || [...document.querySelectorAll('#flyMenu .fly-item')].find(el => el.textContent.includes('打开项目变更中心'));
                 if (full) { full.click(); break; }
                 await new Promise(r => setTimeout(r, 150));
               }
@@ -730,7 +731,7 @@ function gitAvailable() {
       ok(mcp[2].result && String(mcp[2].result.content[0].text).includes('round4-sess'), 'MCP tools/call agenthub_status 返回会话 id');
       let mcpGit = null;
       try { mcpGit = JSON.parse(mcp[3].result.content[0].text); } catch {}
-      ok(mcp[3].result && !mcp[3].result.isError && mcpGit && typeof mcpGit.branch === 'string' && Array.isArray(mcpGit.files), 'MCP tools/call git_status 回连 AgentHub API 并返回仓库状态');
+      ok(mcp[3].result && !mcp[3].result.isError && mcpGit && typeof mcpGit.branch === 'string' && Array.isArray(mcpGit.files), 'MCP tools/call git_status 回连 OrbitCell API 并返回仓库状态');
 
       // ---- MCP 工具管理：settings.mcpDisabledTools → 环境烘焙 → tools/list 过滤 ----
       const putDis = await put('/api/settings', { mcpDisabledTools: ['git_status', 'browser_open', 'not_a_tool', 42] });

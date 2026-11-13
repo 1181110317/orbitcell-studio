@@ -72,6 +72,124 @@ const noTurnA={usageStartedAt:1000},noTurnB={usageStartedAt:2000};
 metrics.collectCodexUsage(noTurnA,first,'fixture-model');metrics.collectCodexUsage(noTurnB,first,'fixture-model');
 assert.notEqual(noTurnA.requestDetails[0].id,noTurnB.requestDetails[0].id,'missing turn IDs must not collapse requests from different turns');
 const mergeUiSource=require('node:fs').readFileSync(require('node:path').join(__dirname,'../public/app.js'),'utf8');
+require('./helpers/conversation-controls.cjs');
+require('./helpers/project-center.cjs');
+require('./helpers/web-research.cjs');
+require('./helpers/conversation-design.cjs');
+require('./helpers/conversation-output.cjs');
+require('./helpers/streaming-output.cjs');
+require('./helpers/usage-charts.cjs');
+// Layout changes and late directory replies must never replace an active editor.
+const layoutVm = require('node:vm');
+const uiFunction = (start, end) => mergeUiSource.slice(mergeUiSource.indexOf(start), mergeUiSource.indexOf(end, mergeUiSource.indexOf(start)));
+const explorerWidth = layoutVm.runInNewContext(uiFunction('function reviewExplorerWidth(', '\nfunction syncReviewExplorerWidth(') + ';reviewExplorerWidth');
+assert.equal(explorerWidth(9999, 820), 420, 'explorer width is bounded on a large panel');
+assert.equal(explorerWidth(9999, 650), 366, 'explorer leaves a usable minimum document width');
+assert.equal(explorerWidth(-10, 650), 220, 'invalid explorer preferences restore the default');
+assert.equal(explorerWidth(20, 390), 180, 'compact overlay cannot inherit a zero-width explorer');
+const revealReads = [], revealState = {
+  loaded: true, root: 'C:\\project', revealedPath: '', selected: '',
+  expanded: new Set(), children: new Map(), childRequests: new Map(),
+};
+const revealSession = { remoteHostId: '' }, revealReview = { path: 'C:\\project\\src\\components\\widget.js' };
+const revealCurrent = layoutVm.runInNewContext(uiFunction('function wsRevealCurrentPath(', '\nfunction ensureWorkspaceTree(') + ';wsRevealCurrentPath', {
+  wsFiles: revealState, S: { review: revealReview, hosts: [{ id: 'linux', platform: 'posix' }] },
+  curSession: () => revealSession, wsFetchDir: rel => revealReads.push(rel),
+});
+revealCurrent();
+assert.deepEqual(revealReads, ['src', 'src/components'], 'opening a nested file reveals its ancestor directories');
+assert.equal(revealState.selected, 'src/components/widget.js', 'the revealed file keeps its target-relative spelling');
+revealState.expanded.clear(); revealCurrent();
+assert.equal(revealState.expanded.size, 0, 'later tree refreshes respect directories the user has collapsed');
+revealReview.path = 'C:\\project-other\\secret.js'; revealCurrent();
+assert.equal(revealReads.length, 2, 'a common path prefix cannot reveal a sibling project');
+revealSession.remoteHostId = 'linux'; revealState.root = '/workspace';
+revealReview.path = '/Workspace/file.js'; revealCurrent();
+assert.equal(revealReads.length, 2, 'POSIX SSH paths remain case-sensitive when revealing files');
+let layoutDirectoryClears = 0, layoutRenderCalls = 0;
+const layoutState = { review: { open: true, mode: 'edit' } };
+const layoutContext = layoutVm.createContext({
+  S: layoutState, reviewLayout: 'explorer', reviewExplorerOpen: true, REVIEW_LAYOUT_KEY: 'layout-test',
+  storageSet() {}, syncReviewWorkspaceLayout() {}, renderReviewTabs() {}, ensureWorkspaceTree() {},
+  renderWorkspaceFiles() { layoutRenderCalls++; },
+  renderReviewBlank() { throw Error('active editor was replaced'); },
+  $: selector => { assert.equal(selector, '#reviewExplorer'); return { replaceChildren() { layoutDirectoryClears++; } }; },
+});
+layoutVm.runInContext(uiFunction('function setReviewLayout(', '\nfunction setReviewExplorerOpen(') + ';setReviewLayout("tabs");setReviewLayout("explorer");', layoutContext);
+assert.equal(layoutDirectoryClears, 1, 'switching to tabs removes only the old directory DOM');
+assert.equal(layoutRenderCalls, 2, 'both layouts refresh their directory destination');
+const directoryWrites = [], directoryState = {
+  review: { open: true, mode: 'edit', path: 'main.js' },
+  readOnly: false,
+};
+const directoryRoot = label => ({ contains() { return false; }, querySelector() { return null; }, set innerHTML(value) { directoryWrites.push([label, value]); } });
+const directoryNodes = { '#reviewDiff': directoryRoot('document'), '#reviewExplorer': directoryRoot('directory') };
+const directoryContext = layoutVm.createContext({
+  S: directoryState, reviewLayout: 'explorer',
+  wsFiles: { root: 'project', rel: '', query: '', entries: [], results: null, selected: '', focusRel: '' },
+  $: selector => directoryNodes[selector], document: { activeElement: null }, curSession: () => ({ cwd: 'project' }),
+  esc: value => String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('"', '&quot;'),
+  baseName: value => value, wsCreateParent: () => '', wsBindToolbar() {}, syncWorkspaceSelection() {},
+  window: { AgentHubIcons: { svg: () => '<svg></svg>' } },
+});
+layoutVm.runInContext(uiFunction('function renderWorkspaceFiles(', '\nfunction wsCreateParent(') + ';renderWorkspaceFiles();', directoryContext);
+assert.equal(directoryWrites[0][0], 'directory', 'a late directory response updates only the explorer while editing');
+directoryContext.reviewLayout = 'tabs';
+layoutVm.runInContext('renderWorkspaceFiles()', directoryContext);
+assert.equal(directoryWrites.length, 1, 'a late directory response cannot cover a file in tab layout');
+directoryState.review.mode = 'files';
+layoutVm.runInContext('renderWorkspaceFiles()', directoryContext);
+assert.equal(directoryWrites.at(-1)[0], 'document', 'the directory has its own document tab in classic layout');
+directoryState.review.open = false;
+layoutVm.runInContext('renderWorkspaceFiles()', directoryContext);
+assert.equal(directoryWrites.length, 2, 'closed panels ignore directory renders');
+let createSelection = { rel: 'src/components', dir: true };
+const createParent = layoutVm.runInNewContext(uiFunction('function wsCreateParent(', '\nfunction wsFocusRow(') + ';wsCreateParent', {
+  wsFiles: { selected: 'src/components', rel: '' }, wsEntryByRel: () => createSelection,
+});
+assert.equal(createParent(), 'src/components', 'new files follow the selected folder');
+createSelection = { rel: 'src/components/widget.js', dir: false };
+const createFileParent = layoutVm.runInNewContext(uiFunction('function wsCreateParent(', '\nfunction wsFocusRow(') + ';wsCreateParent', {
+  wsFiles: { selected: createSelection.rel, rel: '' }, wsEntryByRel: () => createSelection,
+});
+assert.equal(createFileParent(), 'src/components', 'new siblings follow a selected file parent');
+let tabReactivations = 0;
+const closeTabState = { review: { activeTabId: 'editing', tabs: [{ id: 'other', mode: 'preview' }, { id: 'editing', mode: 'edit' }] } };
+const closeInactiveTab = layoutVm.runInNewContext(uiFunction('function closeReviewTabNow(', '\nfunction reviewGroups(') + ';closeReviewTabNow', {
+  S: closeTabState, reviewLayout: 'explorer', renderReviewTabs() {}, activateReviewTab() { tabReactivations++; },
+});
+closeInactiveTab('other');
+assert.equal(tabReactivations, 0, 'closing an inactive tab preserves the active editor DOM and undo history');
+assert.equal(closeTabState.review.activeTabId, 'editing', 'closing another tab does not change active selection');
+const editorLineHelpers = layoutVm.runInNewContext(
+  uiFunction('function editorLineStarts(', '\nlet fileEditorViewCleanup') + ';({editorLineStarts,editorCursorPosition,editorGutterWindow})');
+assert.deepEqual([...editorLineHelpers.editorLineStarts('')], [0], 'an empty document still has line 1');
+assert.deepEqual([...editorLineHelpers.editorLineStarts('a\n\n')], [0, 2, 3], 'blank and trailing lines retain their own line numbers');
+const unicodeEditorText = '你🙂\nlast';
+assert.deepEqual(editorLineHelpers.editorCursorPosition(editorLineHelpers.editorLineStarts(unicodeEditorText), unicodeEditorText.length, unicodeEditorText.length), {line:2,column:5}, 'cursor columns use the textarea offsets without counting the previous Unicode line');
+assert.deepEqual(editorLineHelpers.editorCursorPosition([0, 2, 3], 2, 3), {line:2,column:1}, 'an empty line is a valid cursor location');
+assert.deepEqual(editorLineHelpers.editorCursorPosition([0, 2], 99, 3), {line:2,column:2}, 'stale cursor offsets are clamped to document length');
+const longGutter = editorLineHelpers.editorGutterWindow(100000, 1000000, 400, 20, 12);
+assert.equal(longGutter.first, 49999, 'gutter range follows the text scroll including its top padding');
+assert.equal(longGutter.offset, -8, 'fractional first-row clipping stays aligned with the text');
+assert(longGutter.last - longGutter.first <= 22, 'a large document mounts only viewport line numbers');
+const gutterBottom = editorLineHelpers.editorGutterWindow(100000, 9999999, 400, 20, 12);
+assert.equal(gutterBottom.first, 99999, 'a stale scroll position cannot exceed the final line');
+assert.equal(gutterBottom.last, 100000, 'the gutter never numbers nonexistent lines');
+let dockedOpeningCalls = [];
+const dockedOpeningState = { review: { open: false } };
+const showDockedPanel = layoutVm.runInNewContext(uiFunction('function showReviewPanel(', '\nfunction ensureReviewTab(') + ';showReviewPanel', {
+  S: dockedOpeningState,
+  window: { AgentHubFeatures: { closeSharedBrowser() {} } },
+  $: () => ({classList:{remove(){},add(){}}}),
+  setReviewMaximized: value => dockedOpeningCalls.push(value),
+  syncReviewWidth() {}, syncReviewWorkspaceLayout() {}, syncTermReviewLayout() {},
+});
+assert.equal(showDockedPanel(), true);
+assert.deepEqual(dockedOpeningCalls, [false], 'opening files never restores the old automatic full-screen state');
+dockedOpeningState.review.open = true;
+showDockedPanel();
+assert.equal(dockedOpeningCalls.length, 1, 'switching files within a manually maximized panel preserves its current size');
 const changeHelpersStart=mergeUiSource.indexOf('function changeFileState('),changeHelpersEnd=mergeUiSource.indexOf('\nasync function openChangesPopover(',changeHelpersStart);
 const changesUi=require('node:vm').runInNewContext(mergeUiSource.slice(changeHelpersStart,changeHelpersEnd)+';({changeLineStats,changeFileRowHtml})',{esc:v=>String(v??'').replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;'),UI_ICONS2:{file:'<svg></svg>'}});
 assert(changesUi.changeLineStats({}).includes('行数未返回'),'missing remote line counts never become a measured zero');
@@ -178,6 +296,19 @@ assert.equal(contextUi.contextCapacity(1024000),'1.024M');
 assert.equal(contextUi.contextCapacity(4000000),'4M');
 assert.equal(contextUi.contextCapacity(512000),'512K');
 const imageConstants=mergeUiSource.slice(mergeUiSource.indexOf('const EXT_IMAGE ='),mergeUiSource.indexOf('function fileExt('));
+const previewPathUi=uiVm.runInNewContext(mergeUiSource.slice(mergeUiSource.indexOf('function previewWorkingDirectory('),mergeUiSource.indexOf('function rawFileUrl('))+mergeUiSource.slice(mergeUiSource.indexOf('function previewDisplayPath('),mergeUiSource.indexOf('function showFilePreview('))+';previewDisplayPath',{S:{defaultWorkspace:''}});
+assert.equal(previewPathUi('src/example.js',{cwd:'/workspace'}),'/workspace/src/example.js');
+assert.equal(previewPathUi('src\\example.js',{cwd:'C:\\project'}),'C:\\project\\src\\example.js');
+assert.equal(previewPathUi('src/example.js',{cwd:'C:\\project'}),'C:\\project\\src\\example.js');
+assert.equal(previewPathUi('src/example.js',{cwd:'\\\\host\\share'}),'\\\\host\\share\\src\\example.js');
+for(const path of ['/tmp/example.js','C:\\project\\example.js','\\\\host\\share\\example.js','~/example.js'])assert.equal(previewPathUi(path,{cwd:'/workspace'}),path,'absolute and home paths keep the selected target semantics');
+const previewServerSource=require('fs').readFileSync(require('path').join(__dirname,'../server.js'),'utf8');
+const previewFailure=uiVm.runInNewContext(previewServerSource.slice(previewServerSource.indexOf('function remotePreviewError('),previewServerSource.indexOf("app.get('/api/fs/raw'"))+';remotePreviewError');
+assert.equal(previewFailure(Error('Permission denied'),'/workspace/file.txt').code,'FILE_PERMISSION_DENIED');
+assert.equal(previewFailure(Error('AH_PREVIEW_MISSING'),'/workspace/file.txt').status,404);
+assert.equal(previewFailure(Error('base64: command not found'),'/workspace/file.txt').code,'REMOTE_READER_UNAVAILABLE');
+assert.equal(previewFailure(Error('Is a directory'),'/workspace/folder').code,'NOT_A_FILE');
+assert.equal(previewFailure(Object.assign(Error('remote failed'),{remoteExitCode:1}),'/workspace/file.txt').error,'远程文件读取失败（exit 1）：/workspace/file.txt；请检查连接、路径与读取权限后重试');
 const extractImages=uiVm.runInNewContext(imageConstants+mergeUiSource.slice(mergeUiSource.indexOf('function extractArtifactPaths('),mergeUiSource.indexOf('function artifactImageHtml('))+';extractArtifactPaths');
 const imagePaths=text=>Array.from(extractImages(text));
 assert.deepStrictEqual(imagePaths('已保存到 `/home/caq/top/monitor/docs/flow/`：\n\n| 文件 | 内容 |\n|---|---|\n'+[1,2,3,4].map(i=>'| `flow'+i+'.png` | 流程图 |').join('\n')), [1,2,3,4].map(i=>'/home/caq/top/monitor/docs/flow/flow'+i+'.png'));
@@ -187,13 +318,80 @@ assert.deepStrictEqual(imagePaths('保存到 `/tmp/one/`：\n`one.png`\n## 另�
 assert.deepStrictEqual(imagePaths('保存到 `/tmp/one/`：\n`./explicit.png` 与 `/other/absolute.png`'),['./explicit.png','/other/absolute.png']);
 assert.deepStrictEqual(imagePaths('保存到 `/tmp/one/`：\n`one.png` 和 `/tmp/one/one.png`'),['/tmp/one/one.png']);
 assert.deepStrictEqual(imagePaths('![web](https://example.invalid/flow1.png)'),[],'web images are not local generated files');
+assert.deepStrictEqual(imagePaths('`My Folder/demo.md`'),['My Folder/demo.md'],'quoted paths containing spaces are not split into false attachments');
+assert.deepStrictEqual(imagePaths('普通路径：src/changed.js；'),['src/changed.js'],'prose labels never become part of an attachment path');
+assert.deepStrictEqual(imagePaths('```text\nsrc/example.py\n```'),[],'paths in fenced code do not become bogus reply file cards');
 const rateStart=mergeUiSource.indexOf('function fmtTokRate(');
+const observedImages=new Set(),observerCallbacks=[];
+const mountImages=uiVm.runInNewContext(mergeUiSource.slice(mergeUiSource.indexOf('const artifactImagePending='),mergeUiSource.indexOf('function artifactRowHtml('))+';hydrateArtifactImages',{IntersectionObserver:class{constructor(callback){observerCallbacks.push(callback);}observe(img){observedImages.add(img);}unobserve(img){observedImages.delete(img);}}});
+let retryHandlers=0;const imageFlags=new Set(),imageStatus={textContent:''};
+const imageButton={dataset:{},addEventListener(){retryHandlers++;},querySelector:()=>imageStatus,classList:{remove:name=>imageFlags.delete(name),add:name=>imageFlags.add(name),contains:name=>imageFlags.has(name),toggle(name,on){on?imageFlags.add(name):imageFlags.delete(name);}}};
+const observedImage={isConnected:true,dataset:{artifactMode:'raw',artifactSrc:'/fixture.png'},closest:selector=>selector==='.artifact-image'?imageButton:null};
+const imageRoot={querySelectorAll:()=>[observedImage]};mountImages(imageRoot);assert.equal(observedImages.size,1);
+observedImage.isConnected=false;mountImages({querySelectorAll:()=>[]});assert.equal(observedImages.size,0,'replacing a conversation releases offscreen image observers');
+observedImage.isConnected=true;mountImages(imageRoot);assert.equal(observedImages.size,1);assert.equal(retryHandlers,1,'reattaching an image does not accumulate retry handlers');
+observerCallbacks[0]([{isIntersecting:true,target:observedImage}]);observedImage.isConnected=false;observedImage.onload();assert(imageFlags.has('is-ready')&&!imageButton.disabled,'an image finishing while detached is ready when the same live view returns');
+const zoomFrames=[],zoomCalls=[];
+const zoomSourceStart=mergeUiSource.indexOf('const imageZoomFrames =');
+const imageWheelUi=uiVm.runInNewContext(mergeUiSource.slice(zoomSourceStart,mergeUiSource.indexOf("document.addEventListener('wheel'",zoomSourceStart))+';({scheduleImageZoom,imageZoomFrames})',{requestAnimationFrame:fn=>zoomFrames.push(fn),zoomImageViewer:(...args)=>zoomCalls.push(args)});
+const zoomFixture={isConnected:true,querySelector:()=>({naturalWidth:100,getBoundingClientRect:()=>({width:100})})};
+for(let i=0;i<20;i++)imageWheelUi.scheduleImageZoom(zoomFixture,1,{x:i,y:10});
+assert.equal(zoomFrames.length,1,'a wheel burst produces only one image layout per animation frame');zoomFrames.shift()();assert.equal(zoomCalls.length,1);assert.equal(zoomCalls[0][2].x,19,'coalesced zoom keeps the latest pointer anchor');
+imageWheelUi.scheduleImageZoom(zoomFixture,10,{x:0,y:0});imageWheelUi.imageZoomFrames.delete(zoomFixture);zoomFrames.shift()();assert.equal(zoomCalls.length,1,'an explicit fit/reset cancels an older queued wheel zoom');
+const replyUsageDetails=uiVm.runInNewContext(mergeUiSource.slice(mergeUiSource.indexOf('function turnUsageDetailsHtml('),mergeUiSource.indexOf('function userMessageBodyHtml('))+';turnUsageDetailsHtml',{esc:value=>String(value),fmtTok:value=>String(value)});
+const cachedReply=replyUsageDetails({input:100,output:50,cacheRead:800,cacheCreate:100,cacheKnown:true,requests:3});
+assert(cachedReply.includes('80.0%')&&cachedReply.includes('800 / 100')&&cachedReply.includes('3 次'),'reply footer uses cache read over all input categories and actual request count');
+assert(replyUsageDetails({input:100,cacheKnown:true}).includes('0.0%'),'a recorded zero cache hit remains a real zero');
+assert(replyUsageDetails({input:100,cacheKnown:false}).includes('未记录'),'unreported cache is not displayed as zero percent');
+assert(replyUsageDetails({input:100,cacheRead:800,cacheCreate:100,cacheKnown:false}).includes('80.0% *'),'partial cache coverage is marked rather than presented as complete');
 const formatRate=uiVm.runInNewContext(mergeUiSource.slice(rateStart,mergeUiSource.indexOf('function baseName(',rateStart))+';fmtTokRate');
+require('./helpers/conversation-recovery.cjs');
 assert.equal(formatRate(5000,500,357000,true).label,'≈14 tok/s');
 assert.equal(formatRate(5000,500,357000,true).exact,false);
 assert.equal(formatRate(1000,2000,6000,false).label,'500 tok/s');
 assert.equal(formatRate(1000,2000,6000,false).exact,true);
-assert.equal(formatRate(18,1000,9000,true),null);
+assert.equal(formatRate(18,1000,9000,true).label,'≈2.0 tok/s');
+assert.equal(formatRate(876,0,9000,true).label,'≈97 tok/s','short recorded replies still expose a labelled whole-turn average');
+assert.equal(formatRate(18,1000,9000,true).exact,false);
+assert.equal(formatRate(0,1000,9000,true),null);
+const sessionPerformance=uiVm.runInNewContext(require('node:fs').readFileSync(require('node:path').join(__dirname,'../public/usage-details.js'),'utf8')+';window.AgentHubUsage.sessionPerformance',{window:{},fmtTokRate:formatRate});
+const performanceSample=sessionPerformance([
+  {output:100,elapsed:5000,genMs:1000,genEstimated:false,timedOutput:100,timedRequests:1,ttftMs:200,ttftRequests:1},
+  {output:900,elapsed:20000,genMs:3000,genEstimated:false,timedOutput:900,timedRequests:1,ttftMs:600,ttftRequests:1},
+]);
+assert.equal(performanceSample.meanRate,'≈40 tok/s','whole-session throughput divides paired total output by total work time, not an average of per-turn rates');
+assert.equal(performanceSample.decodeRate,'250 tok/s','decode speed weights actual generated tokens and their time windows');
+assert.equal(performanceSample.elapsedMs,25000);
+assert.equal(performanceSample.ttftMs/performanceSample.ttftRequests,400);
+const incompletePerformance=sessionPerformance([{output:100,elapsed:10000},{output:900},{output:99999,elapsed:1000,tokensEstimated:true},{output:99999,elapsed:Infinity}]);
+assert.equal(incompletePerformance.meanRate,'≈10 tok/s','missing time and estimated tokens cannot inflate the throughput numerator');
+assert.equal(incompletePerformance.decodeRate,'—','whole-turn timing must not masquerade as decode timing');
+assert.equal(sessionPerformance([{output:100}]).meanRate,'—','missing timings remain unknown');
+assert.equal(sessionPerformance([{output:0,elapsedMs:1000,requests:1,usageUnknownRequests:1}]).pairedTurns,0,'aggregate-only rows preserve their unknown usage counter');
+assert.equal(sessionPerformance([{output:99999,elapsedMs:1000,estimatedRequests:1}]).meanRate,'—','aggregate-only estimated usage cannot enter measured rates');
+const aggregatePerformance=sessionPerformance([{output:100,elapsedMs:1000}],{turns:10001,durationSamples:10001,elapsedMs:10001000,output:2000200,decodeMs:2000000,timedOutput:2000000,timedRequests:10001});
+assert.equal(aggregatePerformance.meanRate,'≈200 tok/s','complete aggregate counters cover sessions beyond the capped details list');
+const requestPerformance=sessionPerformance([
+  {output:100,elapsedMs:5000,requests:1,ts:'2026-01-01T00:00:05Z'},
+  {output:900,elapsedMs:20000,requests:1,ts:'2026-01-01T00:01:20Z'},
+],null,[
+  {id:'one',output:100,elapsedMs:2000,usageKnown:true,ts:'2026-01-01T00:00:01Z'},
+  {id:'two',output:900,elapsedMs:8000,usageKnown:true,ts:'2026-01-01T00:01:01Z'},
+  {id:'one',output:100,elapsedMs:2000,usageKnown:true,ts:'2026-01-01T00:00:01Z'},
+  {id:'unknown',output:0,elapsedMs:1000,usageKnown:false,ts:'2026-01-01T00:01:10Z'},
+]);
+assert.equal(requestPerformance.requestRate,'≈100 tok/s','request throughput excludes time between calls and weights total output by paired request durations');
+assert.equal(requestPerformance.requestPaired,2);
+assert.equal(requestPerformance.requestCount,3,'duplicate request IDs do not inflate sample coverage');
+assert.equal(sessionPerformance([],null,[{output:10,elapsedMs:1000},{output:10,elapsedMs:1000}]).requestCount,2,'matching token counts do not collapse distinct requests without IDs');
+assert.equal(requestPerformance.longestGapMs,1000,'time between two turns is not a pause within one turn');
+const pausedPerformance=sessionPerformance([{output:100,elapsedMs:172800000,ts:'2026-01-03T00:00:00Z'}],null,[
+  {id:'before',output:50,elapsedMs:2000,ts:'2026-01-01T00:00:01Z'},
+  {id:'after',output:50,elapsedMs:2000,ts:'2026-01-02T23:00:01Z'},
+]);
+assert.equal(pausedPerformance.longestGapMs,169198000,'a large recorded gap remains visible instead of being silently counted as active model generation');
+assert.equal(pausedPerformance.requestRate,'≈25 tok/s');
+assert.equal(pausedPerformance.meanRate,'≈0.0 tok/s','a wall-clock turn throughput remains a separate metric');
 
 const mermaidStart=mergeUiSource.indexOf('function mermaidBlockHtml(');
 const mermaidHtml=uiVm.runInNewContext(mergeUiSource.slice(mergeUiSource.indexOf('const esc ='),mergeUiSource.indexOf('// 浏览器禁用/无痕策略'))+mergeUiSource.slice(mermaidStart,mergeUiSource.indexOf('function md(',mermaidStart))+';mermaidBlockHtml');
@@ -247,6 +445,7 @@ const diagnosticsUi=uiVm.runInNewContext(
   mergeUiSource.slice(mergeUiSource.indexOf('function providerAuthFailure('),mergeUiSource.indexOf('// 过程步骤行'))+
   ';({isCliModelDiagnostic,normBlocks,providerAuthFailure,turnAnswerHtml,turnDiffUnavailableHtml})',{
     esc:v=>String(v).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;'),md:v=>'markdown:'+v,
+    window:{AgentHubIcons:{svg:()=>'<svg></svg>'}},UI_ICONS:{chevDown:'<svg></svg>'},
   });
 const modelNotice='[claude-code:unrecognized_model] {"model":"MiniMax-M3","query_source":"generate_session_title"}\n[claude-code:unrecognized_model] {"model":"workbuddy/deepseek-v4.1-flash","query_source":"sdk"}';
 const oldDiagnostic={type:'error',text:modelNotice};
@@ -264,7 +463,7 @@ assert.equal(diagnosticsUi.providerAuthFailure('远程 SSH 连接超时'),null,'
 assert.equal(diagnosticsUi.turnAnswerHtml('正常回复'),'markdown:正常回复','ordinary replies keep their Markdown rendering');
 const diffNote=diagnosticsUi.turnDiffUnavailableHtml('exec: node: 未找到 <img src=x>');
 assert(diffNote.startsWith('<details class="turn-diff-unavailable">')&&!diffNote.includes(' open'),'optional file-diff diagnostics are collapsed by default');
-assert(diffNote.includes('不影响回复内容')&&diffNote.includes('&lt;img')&&!diffNote.includes('<img'),'file-diff diagnostics explain their limited scope and escape raw errors');
+assert(diffNote.includes('仍可在文件或 Git 中查看')&&diffNote.includes('&lt;img')&&!diffNote.includes('<img'),'file-diff diagnostics explain their limited scope and escape raw errors');
 const claudeAgentSource=require('node:fs').readFileSync(require('node:path').join(__dirname,'../lib/agents.js'),'utf8');
 const modelEnvUi=uiVm.runInNewContext(
   claudeAgentSource.slice(claudeAgentSource.indexOf('function providerRawConfig('),claudeAgentSource.indexOf('// Windows 下官方 ZCode'))+
@@ -378,12 +577,14 @@ assert.strictEqual(isAdaptiveReasoningModel('MiniMax-M3-thinking'), true);
 assert.strictEqual(isAdaptiveReasoningModel('MiniMax-M1'), false);
 assert.strictEqual(isAdaptiveReasoningModel('claude-sonnet-4'), false);
 const minimaxCaps = inferCapabilities({ model: 'MiniMax-M3', agent: 'claude' });
+require('./helpers/model-picker.cjs');
 assert.deepStrictEqual(minimaxCaps.reasoningLevels, []);
 assert.match(minimaxCaps.reasoningSource, /adaptive/);
 assert.deepStrictEqual(inferCapabilities({ model: 'claude-sonnet-4', agent: 'claude' }).reasoningLevels,
-  ['minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
+  ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max', 'ultra']);
 
 (async () => {
+  await require('./helpers/identity.cjs')();
   require('./fixtures/markdown-compat.cjs')();
   await require('./fixtures/startup-launcher.cjs')();
   const deletedGitSnapshot=await gitPreview.buildGroupedFileSnapshot([{path:'deleted.txt',diff:deletedGitPatch,tool:'Git'}],'deleted.txt');
@@ -396,7 +597,7 @@ assert.deepStrictEqual(inferCapabilities({ model: 'claude-sonnet-4', agent: 'cla
   }});
   const remoteFirst=await remoteMonitor.sample('a','主机 A');assert.strictEqual(remoteFirst.cpu.percent,null);assert.strictEqual(remoteFirst.network.adapters[0].receiveBps,null,'first remote sample is unknown, not zero speed');
   remoteClock+=1000;await remoteMonitor.sample('a','主机 A');assert.equal(remoteProbes,1,'concurrent viewers share the host cache');
-  remoteClock+=5000;const remoteSecond=await remoteMonitor.sample('a','主机 A');assert.equal(remoteSecond.cpu.percent,75);assert.equal(remoteSecond.network.adapters[0].receiveBps,2000,'remote network uses elapsed target counter time, not the requested poll delay');assert.equal(remoteSecond.backend.rss,12345,'backend usage remains scoped to the local AgentHub service');assert.equal(probeBodies[1].gpu,false,'unsupported GPU probes back off for 60 seconds');
+  remoteClock+=5000;const remoteSecond=await remoteMonitor.sample('a','主机 A');assert.equal(remoteSecond.cpu.percent,75);assert.equal(remoteSecond.network.adapters[0].receiveBps,2000,'remote network uses elapsed target counter time, not the requested poll delay');assert.equal(remoteSecond.backend.rss,12345,'backend usage remains scoped to the local OrbitCell service');assert.equal(probeBodies[1].gpu,false,'unsupported GPU probes back off for 60 seconds');
   assert.strictEqual((await remoteMonitor.sample('b','主机 B')).cpu.percent,null,'a different host never inherits the previous host baseline');
   remoteClock+=20000;assert.strictEqual((await remoteMonitor.sample('a','主机 A')).cpu.percent,null,'reopening after inactivity discards stale rate baselines');
   let releaseProbe,parallelRuns=0;const parallelMonitor=require('../lib/remote-system-metrics').createMonitor({now:()=>remoteClock,backend:()=>({}),run:()=>{parallelRuns++;return new Promise(resolve=>{releaseProbe=resolve;});}});

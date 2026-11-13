@@ -9,7 +9,8 @@ const bash=process.platform==='win32'?['C:/Program Files/Git/bin/bash.exe','C:/P
     clients.add(client);client.on('close',()=>clients.delete(client));client.on('error',()=>{});
     client.on('authentication',ctx=>ctx.method==='password'&&ctx.username==='fixture'&&ctx.password==='fixture-password'?ctx.accept():ctx.reject());
     client.on('ready',()=>client.on('session',accept=>{const session=accept();session.on('exec',(acceptExec,rejectExec,info)=>{
-      commands.push(info.command); const stream=acceptExec(), child=/^powershell\.exe /.test(info.command)?spawn(info.command,{shell:true,windowsHide:true,stdio:['pipe','pipe','pipe']}):spawn(bash,['-c',info.command],{windowsHide:true,stdio:['pipe','pipe','pipe']});
+      commands.push(info.command); const stream=acceptExec(),env={...process.env,CODEX_HOME:path.join(h.tmp,'remote-codex'),CLAUDE_CONFIG_DIR:path.join(h.tmp,'remote-claude')};
+      const child=/^powershell\.exe /.test(info.command)?spawn(info.command,{shell:true,windowsHide:true,env,stdio:['pipe','pipe','pipe']}):spawn(bash,['-c',info.command],{windowsHide:true,env,stdio:['pipe','pipe','pipe']});
       children.add(child);stream.on('data',b=>child.stdin.write(b));stream.on('end',()=>child.stdin.end()); child.stdin.on('error',()=>{});
       child.stdout.on('data',b=>{if(!stream.destroyed)stream.write(b);});child.stderr.on('data',b=>{if(!stream.destroyed)stream.stderr.write(b);});
       child.on('error',e=>{stream.stderr.write(e.message);stream.exit(1);stream.end();});child.on('close',code=>{children.delete(child);if(!stream.destroyed){stream.exit(code||0);stream.end();}});stream.on('close',()=>{if(child.exitCode==null)child.kill();});
@@ -25,6 +26,21 @@ const bash=process.platform==='win32'?['C:/Program Files/Git/bin/bash.exe','C:/P
     const directory=path.join(h.work,platform+' 项目');fs.mkdirSync(directory);
     execFileSync('git',['init','-b','main'],{cwd:directory,stdio:'ignore',windowsHide:true});execFileSync('git',['config','user.name','QA'],{cwd:directory});execFileSync('git',['config','user.email','qa@example.test'],{cwd:directory});
     const host=(await h.api('/api/ssh/hosts','POST',{name:platform+' fixture',host:'127.0.0.1',port:ssh.address().port,user:'fixture',authType:'password',password:'fixture-password',platform})).data;assert(host.id);
+    const skillDir=path.join(directory,'.agents','skills','remote-capability-test');fs.mkdirSync(skillDir,{recursive:true});fs.writeFileSync(path.join(skillDir,'SKILL.md'),'---\nname: remote-capability-test\ndescription: SSH inventory fixture\n---\n# Remote source');
+    const capQuery={agent:'codex',host:host.id,cwd:directory};
+    const nativeInventory=await h.api('/api/capabilities/inventory?'+new URLSearchParams(capQuery));assert.equal(nativeInventory.status,200,JSON.stringify(nativeInventory.data));
+    const remoteSkill=nativeInventory.data.skills.find(s=>s.name==='remote-capability-test');assert(remoteSkill,'remote inventory reads the selected computer');
+    const remoteSource=await h.api('/api/capabilities/skill-content?'+new URLSearchParams({...capQuery,id:remoteSkill.id}));assert.equal(remoteSource.status,200,JSON.stringify(remoteSource.data));assert(remoteSource.data.content.includes('# Remote source'));
+    const remoteImport=await h.api('/api/skills/import','POST',{...capQuery,source:skillDir,scope:'project'});assert.equal(remoteImport.status,200,JSON.stringify(remoteImport.data));assert.equal(remoteImport.data.path,path.join(directory,'.codex','skills','remote-capability-test'));
+    const nativeCreated=await h.api('/api/capabilities/mcp','POST',{...capQuery,create:true,name:'remote_native_fixture',transport:'stdio',command:'node',args:['remote-only'],scope:'project'});assert.equal(nativeCreated.status,200,JSON.stringify(nativeCreated.data));
+    const updatedInventory=await h.api('/api/capabilities/inventory?'+new URLSearchParams(capQuery));const remoteMcp=updatedInventory.data.servers.find(s=>s.name==='remote_native_fixture');assert(remoteMcp);
+    const remoteMcpQuery={...capQuery,id:remoteMcp.id},nativeDetail=await h.api('/api/capabilities/mcp?'+new URLSearchParams(remoteMcpQuery));assert.equal(nativeDetail.status,200);
+    const remoteEdited=await h.api('/api/capabilities/mcp','POST',{...remoteMcpQuery,revision:nativeDetail.data.revision,enabled:false});assert.equal(remoteEdited.status,200,JSON.stringify(remoteEdited.data));
+    assert(fs.readFileSync(nativeCreated.data.source,'utf8').includes('enabled = false'),'native management writes the selected SSH target, not a local fallback');
+    for(const target of [path.join(directory,'.agents'),path.join(directory,'.codex')]){
+      assert(path.resolve(target).startsWith(path.resolve(h.work)+path.sep),'cleanup must stay in the disposable workspace');
+      fs.rmSync(target,{recursive:true,force:true});
+    }
     const resourceUrl='/api/system/metrics?host='+encodeURIComponent(host.id),beforeResource=commands.length;
     const [resourceA,resourceB]=await Promise.all([h.api(resourceUrl),h.api(resourceUrl)]);
     assert.equal(resourceA.status,200,JSON.stringify(resourceA.data));assert.equal(resourceB.status,200);
@@ -42,6 +58,8 @@ const bash=process.platform==='win32'?['C:/Program Files/Git/bin/bash.exe','C:/P
     let created=await h.api('/api/fs/new','POST',{sessionId:s.id,path:'测试.txt',kind:'file'});assert.equal(created.status,200,JSON.stringify(created.data));
     const read=(await h.api('/api/fs/text'+qp+'&path='+encodeURIComponent('测试.txt'))).data;assert(read.hash);
     const edited=await h.api('/api/fs/write','POST',{sessionId:s.id,path:'测试.txt',content:'SSH_TRANSPORT_OK 中文',expectedHash:read.hash,expectedMtime:read.mtime});assert.equal(edited.status,200,JSON.stringify(edited.data));assert.equal(fs.readFileSync(path.join(directory,'测试.txt'),'utf8'),'SSH_TRANSPORT_OK 中文');
+    const rawPreview=await h.api('/api/fs/raw?'+new URLSearchParams({host:host.id,cwd:directory,path:'测试.txt'}));assert.equal(rawPreview.status,200,JSON.stringify(rawPreview.data));assert.equal(rawPreview.data.text,'SSH_TRANSPORT_OK 中文','raw preview reads the selected SSH target in either platform command form');
+    const absentPreview=await h.api('/api/fs/raw?'+new URLSearchParams({host:host.id,cwd:directory,path:'missing-preview.txt'}));assert.equal(absentPreview.status,404,JSON.stringify(absentPreview.data));assert.equal(absentPreview.data.code,'FILE_NOT_FOUND');assert(absentPreview.data.error.includes('missing-preview.txt'));
     assert.equal((await h.api('/api/fs/write','POST',{sessionId:s.id,path:'测试.txt',content:'stale',expectedHash:read.hash})).status,409);
     assert((await h.api('/api/fs/tree'+qp)).data.entries.some(e=>e.name==='测试.txt'));
     const gitUrl='/api/sessions/'+s.id+'/remote-git'; const st=(await h.api(gitUrl+'?action=status','GET',undefined,'fixture-read')).data;assert(st.ok);assert(st.files.some(f=>f.path==='测试.txt'));

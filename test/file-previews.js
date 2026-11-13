@@ -209,7 +209,7 @@ async function inspect(ext, expression) {
       try { healthy = (await fetch(BASE + '/api/health')).ok; if (healthy) break; } catch {}
       await sleep(250);
     }
-    assert(healthy, 'AgentHub did not start');
+    assert(healthy, 'OrbitCell did not start');
     for (const [ext, content] of Object.entries(texts)) {
       const res = await fetch(BASE + '/api/fs/raw?path=' + encodeURIComponent(file(ext)));
       assert.equal(res.status, 200, `${ext}: HTTP ${res.status}`);
@@ -281,7 +281,7 @@ async function inspect(ext, expression) {
       assert.deepEqual(artifact.data.value.paths, ['C:\\agent\\agenthub\\AI发展报告2026.docx', './report.md', 'reports/deck.pptx']);
       assert.equal(artifact.data.value.previewButtons, 3, 'generated artifact cards need preview buttons');
       assert(artifact.data.value.html.includes('回复提到的文件'), 'answer references should be labeled separately from edited files');
-      assert(artifact.data.value.html.includes('点击卡片即可预览文件'), 'referenced file cards should explain how to preview');
+      assert(artifact.data.value.html.includes('aria-label="预览 '), 'referenced file cards should explain how to preview');
       console.log('  ✓ referenced file cards remain previewable and distinct from edits');
       const collapse = await post('/api/browser/evaluate', { expression: `(() => {
         closeDlg();
@@ -297,7 +297,7 @@ async function inspect(ext, expression) {
         return before;
       })()` });
       assert.equal(collapse.code, 200);
-      assert.deepEqual(collapse.data.value, { count: 5, visible: 3, expanded: 'false', label: '再显示 2 个文件' }, 'long path lists should start collapsed');
+      assert.deepEqual(collapse.data.value, { count: 5, visible: 4, expanded: 'false', label: '显示其余 1 个' }, 'long path lists should start collapsed');
       console.log('  ✓ long referenced-file lists start collapsed');
       const imageOrigins = await post('/api/browser/evaluate', { expression: `(() => ({ user: imagesHtml(['data:image/png;base64,AA=='], '用户上传图片'), reply: imagesHtml(['data:image/png;base64,AA==','data:image/png;base64,AA=='], '回复图片附件') }))()` });
       assert.equal(imageOrigins.code, 200);
@@ -331,12 +331,12 @@ async function inspect(ext, expression) {
       assert.equal(referencedCode.data.ok, true, referencedCode.data.error || 'browser evaluate failed');
       assert.deepEqual(referencedCode.data.value, ['C:\\agent\\agenthub\\architecture.png'], 'bare referenced source files must not become preview cards');
       console.log('  ✓ referenced code is not an artifact');
-      const mentionOnly = await post('/api/browser/evaluate', { expression: `(() => { const text='请阅读 C:/project/README.md，并检查 src/created.js'; const html=msgHtml({role:'assistant',ts:1,text,files:[{path:'src/created.js',tool:'Write',created:true}],blocks:[{type:'text',text}]},false,0); const host=document.createElement('div'); host.innerHTML=html; const row=host.querySelector('.artifact-row'); return {cards:row?.querySelectorAll('.artifact-preview-item').length||0, preview:row?.querySelector('[data-fileprev]')?.getAttribute('data-fileprev')||'', mentioned:row?.querySelector('.artifact-title')?.textContent.includes('回复提到的文件')||false, edited:html.includes('已编辑 1 个文件'), mentionedPaths:[...(row?.querySelectorAll('.artifact-copy span[title]')||[])].map(el=>el.getAttribute('title'))}; })()` });
-      assert.deepEqual(mentionOnly.data.value, {cards:1, preview:'C:/project/README.md', mentioned:true, edited:true, mentionedPaths:['C:/project/README.md']}, 'reply-mentioned files must retain previews without being counted as this turn edits');
+      const mentionOnly = await post('/api/browser/evaluate', { expression: `(() => { const text='请阅读 C:/project/README.md，并检查 src/created.js'; const html=msgHtml({role:'assistant',ts:1,text,files:[{path:'src/created.js',tool:'Write',created:true}],blocks:[{type:'text',text}]},false,0); const host=document.createElement('div'); host.innerHTML=html; const row=host.querySelector('.artifact-row'); return {cards:row?.querySelectorAll('.artifact-preview-item').length||0, preview:row?.querySelector('[data-fileprev]')?.getAttribute('data-fileprev')||'', mentioned:row?.getAttribute('aria-label')==='回复提到的文件', edited:host.querySelectorAll('.file-chip').length===1, mentionedPaths:[...(row?.querySelectorAll('[data-fileprev]')||[])].map(el=>el.getAttribute('data-fileprev'))}; })()` });
+      assert.deepEqual(mentionOnly.data.value, {cards:1, preview:'C:/project/README.md', mentioned:true, edited:true, mentionedPaths:['C:/project/README.md']}, 'reply-mentioned files must retain previews without being counted as this turn edits: '+JSON.stringify(mentionOnly.data.value));
       console.log('  ✓ reply-mentioned previews stay separate from actual file operations');
-      const grouped = await post('/api/browser/evaluate', { expression: `(() => { const html = filesRowHtml([{path:'same.js',tool:'Write'},{path:'same.js',tool:'Edit'},{path:'same.js',tool:'Edit'}], 's', 1); return { cards: (html.match(/class="file-chip/g) || []).length, summary: html.includes('已编辑 1 个文件') && html.includes('3 次操作'), ops: html.includes('Edit ×2') }; })()` });
+      const grouped = await post('/api/browser/evaluate', { expression: `(() => { const html = filesRowHtml([{path:'same.js',tool:'Write'},{path:'same.js',tool:'Edit'},{path:'same.js',tool:'Edit'}], 's', 1); return { cards: (html.match(/class="file-chip/g) || []).length, summary: html.includes('1 个文件') && html.includes('3 次操作'), ops: html.includes('编辑 2 次') }; })()` });
       assert.equal(grouped.code, 200);
-      assert.deepEqual(grouped.data.value, { cards: 1, summary: true, ops: true }, 'repeated file events should be grouped into one card');
+      assert.deepEqual(grouped.data.value, { cards: 1, summary: true, ops: true }, 'repeated file events should be grouped into one card: '+JSON.stringify(grouped.data.value));
       console.log('  ✓ grouped file changes');
       const checks = [
         ['csv', 'previewFile', 'CSV_OK'], ['tsv', 'previewFile', 'TSV_OK'],
@@ -608,7 +608,7 @@ async function inspect(ext, expression) {
       assert(Z.decodedAtOpen >= 1, '首屏图片要正常解码');
       assert(Z.decodedAtOpen <= 6, `开图时不得解码全部图片（12 张里解了 ${Z.decodedAtOpen} 张）`);
       console.log('  ✓ 图片懒加载（开图不解码全部）');
-      assert.equal((await inspect('html', 'previewFile')).htmlSandbox, '');
+      assert.equal((await inspect('html', 'previewFile')).htmlSandbox, 'allow-scripts');
       assert((await inspect('mp3', 'previewFile')).media);
       assert((await inspect('pdf', 'previewFile')).media);
       assert((await inspect('png', 'previewImageFile')).title.includes('图片预览'));

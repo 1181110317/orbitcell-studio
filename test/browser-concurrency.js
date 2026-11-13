@@ -1,4 +1,4 @@
-// Two AgentHub instances and simultaneous first requests must not share Chrome state.
+// Two OrbitCell instances and simultaneous first requests must not share Chrome state.
 const assert = require('assert');
 const { spawn } = require('child_process');
 const fs = require('fs');
@@ -23,7 +23,7 @@ async function post(port, route, body = {}) {
         try { healthy = (await fetch(`http://127.0.0.1:${port}/api/health`)).ok; if (healthy) break; } catch {}
         await sleep(250);
       }
-      assert(healthy, `AgentHub ${port} did not start`);
+      assert(healthy, `OrbitCell ${port} did not start`);
     }
     const browser = await (await fetch(`http://127.0.0.1:${ports[0]}/api/browser/status`)).json();
     if (!browser.browser) { console.log('[browser-concurrency] browser unavailable, skipped'); return; }

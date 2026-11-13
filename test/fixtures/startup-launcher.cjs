@@ -18,7 +18,7 @@ module.exports=async function checkStartupLauncher(){
   }
   try{
     fs.mkdirSync(path.join(tmp,'lib'));fs.mkdirSync(path.dirname(logFile),{recursive:true});fs.mkdirSync(env.AGENTHUB_WORKSPACE);
-    fs.copyFileSync(path.join(project,'start-server.cmd'),path.join(tmp,'_run-server.bat'));fs.copyFileSync(path.join(project,'lib','startup-launcher.cjs'),path.join(tmp,'lib','startup-launcher.cjs'));
+    fs.copyFileSync(path.join(project,'start-server.cmd'),path.join(tmp,'_run-server.bat'));fs.copyFileSync(path.join(project,'lib','startup-launcher.cjs'),path.join(tmp,'lib','startup-launcher.cjs'));fs.copyFileSync(path.join(project,'lib','brand.cjs'),path.join(tmp,'lib','brand.cjs'));
     fs.writeFileSync(logFile,'EXISTING_LOG\n');
     fs.writeFileSync(path.join(tmp,'server.js'),"const http=require('node:http'),emit=http.Server.prototype.emit;http.Server.prototype.emit=function(type,req,res){if(type==='request'&&req.url==="+JSON.stringify(shutdown)+"){res.end('stopping');setImmediate(()=>process.emit('SIGTERM'));return true;}return emit.apply(this,arguments);};console.log('CWD:'+process.cwd());console.error('LAUNCHER_STDERR_FIXTURE');require("+JSON.stringify(path.join(project,'server.js'))+");");
     const started=launch();
@@ -26,6 +26,8 @@ module.exports=async function checkStartupLauncher(){
     assert(started.out.includes('CWD:'+tmp),'batch startup uses its own directory even when invoked elsewhere');
     assert(started.out.includes('检查 1/3')&&started.out.includes('检查 2/3')&&started.out.includes('启动 3/3'),'console shows startup stages');
     assert(started.out.includes('http://127.0.0.1:'+port)&&started.out.includes('资源监控 v3'),'readiness reports the actual HTTP address and loaded features');
+    assert(started.out.includes('[版本]')&&started.out.includes('[主机]')&&started.out.includes('[网络]')&&started.out.includes('[命令]')&&started.out.includes('[就绪]'),'startup diagnostics include environment, safe network state, command and initialization timing');
+    assert(started.out.includes(data)&&started.out.includes(env.AGENTHUB_WORKSPACE)&&started.out.includes('健康检查 '),'diagnostics use the actual isolated data/workspace directories and readiness probes');
     assert(started.err.includes('LAUNCHER_STDERR_FIXTURE'),'child stderr remains visible in the console');
     assert(!started.out.includes(secret)&&!started.err.includes(secret),'access tokens never appear in launcher output');
     const duplicate=launch();await until(()=>duplicate.closed);assert.equal(await duplicate.done,1);assert(duplicate.out.includes('已被占用'),'an occupied port produces a clear error without killing or duplicating the running service');

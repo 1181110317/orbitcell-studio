@@ -12,6 +12,10 @@ Dependencies installed through npm retain their upstream licenses. The following
 
 The T3 Code search-ranking and image-compression algorithms were ported with type erasure and adaptation to this application's runtime. Other architectural comparisons were design references rather than copied source. Markdown application renderers are maintained separately in `public/markdown.js`.
 
+## Lobe Icons
+
+Selected Agent and provider brand marks are bundled from [`@lobehub/icons-static-svg` 1.101.0 and 1.102.0](https://github.com/lobehub/lobe-icons), Copyright (c) 2023 LobeHub, MIT license. Original SVGs, an inline geometry bundle, provenance notes and the complete license are in `public/vendor/agent-logos/`. Brand names and marks belong to their respective owners and identify executors, catalog entries and configured API providers; their inclusion does not imply endorsement or runtime availability.
+
 ## T3 Code MIT license
 
 Copyright (c) 2026 T3 Tools Inc.

@@ -72,7 +72,7 @@ fs.writeFileSync(path.join(WORK, '.agenthub.json'), JSON.stringify({
 try {
   execFileSync('git', ['init'], { cwd: WORK, stdio: 'ignore' });
   execFileSync('git', ['config', 'user.email', 'ui-deep@example.invalid'], { cwd: WORK, stdio: 'ignore' });
-  execFileSync('git', ['config', 'user.name', 'AgentHub UI Deep Fixture'], { cwd: WORK, stdio: 'ignore' });
+  execFileSync('git', ['config', 'user.name', 'OrbitCell UI Deep Fixture'], { cwd: WORK, stdio: 'ignore' });
   execFileSync('git', ['add', '.'], { cwd: WORK, stdio: 'ignore' });
   execFileSync('git', ['commit', '-m', 'deep fixture'], { cwd: WORK, stdio: 'ignore' });
   fs.appendFileSync(path.join(WORK, 'deep-0.js'), '// 未提交的修改\n');
@@ -575,11 +575,12 @@ async function frameSize(w, h) {
     note('mermaid：' + JSON.stringify(mermaidInfo));
     ok(mermaidInfo.svg || mermaidInfo.fail, 'mermaid 要么出图要么显示源码回退');
     const expansion = await frameEval(`(()=>{
-      const msg=Array.from(document.querySelectorAll('#messages .msg-assistant')).find(m=>m.querySelector('.turn-summary')&&m.querySelector('.step-error'));
+      const msg=Array.from(document.querySelectorAll('#messages .msg-assistant')).find(m=>m.querySelector('.step-error'));
       if(!msg) return {missing:true};
-      const step=msg.querySelector('.step-error'), group=step.closest('.turn-activity');
+      const step=msg.querySelector('.step-error'), group=step.closest('.turn-activity')||msg;
       const summary=group.querySelector('.turn-summary'), proc=group.querySelector('.turn-process');
       const vis=el=>{const r=el.getBoundingClientRect();return r.width>0&&r.height>0};
+      if(!summary||!proc||summary.tagName==='SUMMARY'||!summary.hasAttribute('data-turntoggle'))return {native:true,missing:false,visible:vis(step),text:step.textContent.trim().slice(0,60)};
       const before={expanded:summary.getAttribute('aria-expanded'),hidden:proc.hidden,stepVisible:vis(step)};
       summary.click();
       const after={expanded:summary.getAttribute('aria-expanded'),hidden:proc.hidden,stepVisible:vis(step)};
@@ -588,7 +589,8 @@ async function frameSize(w, h) {
       return {before,after,reopened,text:step.textContent.trim().slice(0,60)};
     })()`);
     ok(!expansion.missing, '富内容夹具里存在「带错误步骤的可展开回合」');
-    if (!expansion.missing) {
+    if(expansion.native){ok(expansion.visible,'独立错误提示保持可见');ok(expansion.text.length>=4,'错误提示有可读的详情');}
+    else if (!expansion.missing) {
       eq(expansion.before.stepVisible, true, '错误过程默认展开，失败原因直接可见');
       eq(expansion.after.hidden, true, '点击错误摘要可收起该段过程');
       eq(expansion.after.stepVisible, false, '收起后错误步骤隐藏');
@@ -642,9 +644,10 @@ async function frameSize(w, h) {
     eq(altKey, 'alt+n', 'Alt+N 是默认新建任务键位');
     const beforeAlt = (await rest('/api/sessions')).json.length;
     await frameEval(`(()=>{document.dispatchEvent(new KeyboardEvent('keydown',{key:'n',altKey:true,bubbles:true,cancelable:true}));return true})()`);
-    await waitFor(async () => (await frameEval('S.sessions.length')) > beforeAlt, 'Alt+N 新建任务');
+    await waitFor(() => frameEval('!!document.querySelector("[data-task-agent]")'), 'Alt+N 打开 Agent 选择');
+    await frameEval(`(async()=>{const button=document.querySelector('[data-task-agent="builtin"]');await button.onclick();return true;})()`);
     const afterAlt = (await rest('/api/sessions')).json.length;
-    eq(afterAlt, beforeAlt + 1, 'Alt+N 在服务端也新增了一个会话');
+    eq(afterAlt, beforeAlt, '选择 Agent 后进入未发送的会话，不增加空历史');
     // 弹窗焦点陷阱
     await frameEval(`(async()=>{openDlg('焦点陷阱测试','<button id="fA">A</button><button id="fB">B</button>');await new Promise(r=>requestAnimationFrame(()=>requestAnimationFrame(r)));return true})()`);
     const trap = await frameEval(`(()=>{
@@ -899,7 +902,8 @@ async function frameSize(w, h) {
     ok(restAfterCreate.some(s => s.id === createdId), 'REST 列表包含新建会话 ' + createdId);
     const groupsAfterCreate = await sections();
     ok(!(groupsAfterCreate['置顶'] || []).includes(createdId), '新建的未置顶会话不会出现在「置顶」分组');
-    ok((groupsAfterCreate['置顶'] || []).includes('deep-list-2'), '夹具里已置顶的会话仍在「置顶」分组');
+    const pinMarked=id=>frameEval('!!document.querySelector('+JSON.stringify('.session-item[data-sid="'+id+'"] .si-pinned-mark')+')');
+    ok(await pinMarked('deep-list-2'), '夹具里已置顶的会话保留项目内置顶标记');
     // 重命名
     await frameEval(`(()=>{document.getElementById('hdrTitle').dispatchEvent(new MouseEvent('dblclick',{bubbles:true}));return true})()`);
     await waitFor(() => frameEval('!document.getElementById("confirmWrap").classList.contains("hidden")'), '重命名确认层打开');
@@ -909,14 +913,14 @@ async function frameSize(w, h) {
     eq((await rest('/api/sessions/' + createdId)).json.title, '深度重命名后的标题', '重命名写入服务端');
     await waitFor(async () => (await frameEval(`(document.querySelector('.session-item[data-sid="${createdId}"] .si-title')||{}).textContent||''`)) === '深度重命名后的标题', '界面列表显示新标题');
     // 置顶
-    await frameEval(`(()=>{document.querySelector('.session-item[data-sid="${createdId}"] .si-pin').click();return true})()`);
+    await frameEval(`(()=>{document.querySelector('.session-item[data-sid="${createdId}"] .si-more').click();[...document.querySelectorAll('#flyMenu .fly-item')].find(e=>e.textContent.includes('置顶')).click();return true})()`);
     await waitFor(async () => ((await rest('/api/sessions/' + createdId)).json || {}).pinned === true, 'REST pinned=true');
     // REST 生效与前端重绘是两条独立异步链：高负载下 DOM 可能晚一拍，
     // 先等「置顶」分组真的出现该会话再断言，避免把时序窗口当功能缺陷。
-    await waitFor(async () => ((await sections())['置顶'] || []).includes(createdId), '前端置顶分组已重绘');
+    await waitFor(() => pinMarked(createdId), '前端项目内置顶标记已重绘');
     const pinnedSections = await sections();
-    ok((pinnedSections['置顶'] || []).includes(createdId), '置顶分组出现该会话：' + JSON.stringify(pinnedSections['置顶']));
-    ok(!(pinnedSections['（活跃分组）'] || []).includes(createdId), '置顶后不再出现在活跃分组');
+    ok(await pinMarked(createdId), '置顶后会话显示项目内置顶标记');
+    eq(await frameEval('document.querySelectorAll('+JSON.stringify('.session-item[data-sid="'+createdId+'"]')+').length'),1,'项目内置顶不会生成重复会话行');
     // 休眠（未置顶会话：正常应移出活跃分组进入「休眠中」）
     await frameEval('(()=>{document.getElementById("btnNewChat").click();return true})()');
     await waitFor(async () => (await frameEval('S.sessions.length')) > listBefore + 1, '第二个新会话出现在前端列表');
@@ -936,14 +940,16 @@ async function frameSize(w, h) {
     const snoozePinned = await frameEval(callFn(__dlFly, '("休眠 1 小时")'));
     ok(snoozePinned.ok, '置顶会话也能选「休眠」：' + JSON.stringify(snoozePinned.labels));
     await waitFor(async () => Number(((await rest('/api/sessions/' + createdId)).json || {}).snoozedUntil) > Date.now(), 'REST 置顶会话 snoozedUntil 生效');
+    await waitFor(async () => ((await sections())["休眠中"] || []).includes(createdId), "已置顶会话在前端完成休眠重绘");
     const pinnedSnoozeSections = await sections();
     record(!(pinnedSnoozeSections['置顶'] || []).includes(createdId) && (pinnedSnoozeSections['休眠中'] || []).includes(createdId),
       '已置顶会话休眠后仍留在「置顶」分组（休眠对置顶会话无效：界面提示「已休眠到…」但列表照旧显示，未见任何休眠标记）');
     // 收起（对夹具 deep-list-1）
     await frameEval(`(()=>{document.querySelector('.session-item[data-sid="${LIST1}"] .si-more').click();return true})()`);
     await waitFor(() => frameEval('!document.getElementById("flyMenu").classList.contains("hidden")'), '会话更多菜单打开（收起）');
-    const settleClick = await frameEval(callFn(__dlFly, '("收起")'));
-    ok(settleClick.ok, '收起菜单项存在：' + JSON.stringify(settleClick.labels));
+    const settleClick = await frameEval(callFn(__dlFly, '("选择多个会话")'));
+    ok(settleClick.ok, '会话多选入口存在：' + JSON.stringify(settleClick.labels));
+    await frameEval('(()=>{document.querySelector("#multiBar [data-mb=settle]").click();return true})()');
     await waitFor(async () => Number(((await rest('/api/sessions/' + LIST1)).json || {}).settledAt) > 0, 'REST settledAt 生效');
     const settledSections = await sections();
     ok(Object.keys(settledSections).includes('已收起'), '出现「已收起」分组');
@@ -954,7 +960,7 @@ async function frameSize(w, h) {
     // 归档（多选 -> 批量归档）
     await frameEval(`(()=>{document.querySelector('.session-item[data-sid="${LIST1}"] .si-more').click();return true})()`);
     await waitFor(() => frameEval('!document.getElementById("flyMenu").classList.contains("hidden")'), '会话更多菜单打开（多选）');
-    const multiClick = await frameEval(callFn(__dlFly, '("进入多选")'));
+    const multiClick = await frameEval(callFn(__dlFly, '("选择多个会话")'));
     ok(multiClick.ok, '多选菜单项存在：' + JSON.stringify(multiClick.labels));
     await waitFor(() => frameEval(`!!document.querySelector('.session-item[data-sid="${LIST1}"] .si-check')`), '多选复选框出现');
     await waitFor(() => frameEval('!document.getElementById("multiBar").classList.contains("hidden")'), '批量操作条出现');
@@ -976,7 +982,7 @@ async function frameSize(w, h) {
     await resetUi();
     await frameEval(`(async()=>{await openSession(${JSON.stringify(SID)});return true})()`);
     await waitFor(() => frameEval(`!!document.querySelector('.session-item[data-sid="${LIST1}"]')`), '恢复的会话回到界面列表');
-    await frameEval(`(()=>{document.querySelector('.session-item[data-sid="${LIST1}"] .si-del').click();return true})()`);
+    await frameEval(`(()=>{document.querySelector('.session-item[data-sid="${LIST1}"] .si-more').click();[...document.querySelectorAll('#flyMenu .fly-item')].find(e=>e.textContent.includes('删除')).click();return true})()`);
     await waitFor(() => frameEval('!document.getElementById("confirmWrap").classList.contains("hidden")'), '删除确认层出现');
     await frameEval('(()=>{document.getElementById("confirmOk").click();return true})()');
     await waitFor(async () => (await rest('/api/sessions/' + LIST1)).status === 404, 'REST 删除后 404');
