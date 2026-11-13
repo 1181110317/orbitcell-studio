@@ -126,6 +126,10 @@
 @media(max-width:600px){#dlgBody .stats-overview-cards{grid-template-columns:repeat(2,minmax(0,1fr))}#dlgBody .stats-overview-cards .sc-value{min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere}}
 @media(max-width:600px){.pq-fields{grid-template-columns:minmax(0,1fr)}.pq-balances{gap:18px}.provider-quota-panel{padding:12px}.provider-quota-panel [data-pq-time]{display:none}}
 /* Order controls live in a dedicated dialog, outside the cards. */
+html:not([lang^="zh"]) .manage-global-nav{grid-template-columns:repeat(3,minmax(0,1fr))}
+html:not([lang^="zh"]) .settings-sidebar .manage-global-nav{grid-template-columns:repeat(2,minmax(0,1fr))}
+.manage-global-nav button>span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.settings-pane .settings-language-grid>.dialog-note{grid-column:auto;align-self:center;border:0;padding:0;line-height:1.8}
 #dlg:has(.layout-order-editor){width:min(704px,calc(100vw / var(--ui-zoom,1) - 32px));max-width:none}
 .layout-order-editor{display:flex;flex-direction:column;gap:12px;width:100%;max-width:640px;max-height:calc(100dvh / var(--ui-zoom,1) - 160px);min-width:0;min-height:0;margin:auto}
 .layout-order-editor>:not(.order-list){flex:none}

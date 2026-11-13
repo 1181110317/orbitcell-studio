@@ -22,7 +22,7 @@
 各个 Agent 保留自己的执行方式和实际支持的配置；OrbitCell 负责组织连接、项目上下文和日常开发工具。
 
 <p align="center">
-  <a href="docs/assets/orbitcell-agents.png"><img src="docs/assets/orbitcell-agents.png" alt="Agent 工作空间：查看版本、环境、模型配置与开始对话入口" width="100%"></a>
+  <a href="docs/assets/zh-CN/orbitcell-agents.png"><img src="docs/assets/zh-CN/orbitcell-agents.png" alt="Agent 工作空间：查看版本、环境、模型配置与开始对话入口" width="100%"></a>
   <sub>在一处管理 Agent 设置、版本、模型与环境。所有截图均使用隔离的演示数据。</sub>
 </p>
 
@@ -66,9 +66,9 @@
 
 添加供应商后，在它的管理页面继续选择模型、查看账户信息。卡片可以同时显示余额、积分以及独立的 5 小时、每周、每月额度。
 
-<p><a href="docs/assets/orbitcell-quota-cards.png"><img src="docs/assets/orbitcell-quota-cards.png" alt="供应商卡片：模型操作、余额与三个周期的额度" width="100%"></a></p>
-<p><a href="docs/assets/orbitcell-quota-detail.png"><img src="docs/assets/orbitcell-quota-detail.png" alt="账户额度详情：分别显示周期与重置时间" width="100%"></a></p>
-<p><a href="docs/assets/orbitcell-quota-chat.png"><img src="docs/assets/orbitcell-quota-chat.png" alt="对话顶部显示当前供应商的额度信息" width="100%"></a></p>
+<p><a href="docs/assets/zh-CN/orbitcell-quota-cards.png"><img src="docs/assets/zh-CN/orbitcell-quota-cards.png" alt="供应商卡片：模型操作、余额与三个周期的额度" width="100%"></a></p>
+<p><a href="docs/assets/zh-CN/orbitcell-quota-detail.png"><img src="docs/assets/zh-CN/orbitcell-quota-detail.png" alt="账户额度详情：分别显示周期与重置时间" width="100%"></a></p>
+<p><a href="docs/assets/zh-CN/orbitcell-quota-chat.png"><img src="docs/assets/zh-CN/orbitcell-quota-chat.png" alt="对话顶部显示当前供应商的额度信息" width="100%"></a></p>
 
 数据取决于供应商接口和账户权限。缺失数据保持未知，聚合网关背后的不同账户也不会合并成一个余额。[额度来源与自定义查询 →](docs/provider-quotas.md)
 
@@ -99,6 +99,17 @@ Windows 安装依赖后，也可以双击 **`start-server.cmd`**。启动器会�
 
 ## 按你的方式工作
 
+<details>
+<summary><strong>选择界面语言</strong> · 中英文切换与语言包</summary>
+
+打开“设置 → 界面与运行 → 界面语言”，选择简体中文、English、العربية 或“跟随系统”。切换即时生效，偏好保存在当前浏览器；跟随系统时使用浏览器的语言偏好。本地扩展可以添加其他语言包，已登记词条支持英文回退。
+
+<p><a href="docs/assets/zh-CN/orbitcell-language-settings.png"><img src="docs/assets/zh-CN/orbitcell-language-settings.png" alt="工作台设置中的中文界面语言选项" width="100%"></a></p>
+
+语言设置只改变界面文字，聊天内容、代码、模型 ID 和输入草稿保留原文。
+
+</details>
+
 <a id="调整工作空间的显示顺序"></a>
 
 <details>
@@ -106,7 +117,7 @@ Windows 安装依赖后，也可以双击 **`start-server.cmd`**。启动器会�
 
 在 Agent、供应商、模型、项目、工具列表上方，或新建任务窗口中，点击“调整顺序”。搜索条目，上移、下移或填写位置，最后点击“保存顺序”。“取消”保留已保存的顺序，“恢复默认顺序”重置当前草稿；不同分类保持分组。
 
-<p><a href="docs/assets/orbitcell-order-settings.png"><img src="docs/assets/orbitcell-order-settings.png" alt="排序设置：搜索、移动按钮、位置数字以及明确的保存和取消操作" width="100%"></a></p>
+<p><a href="docs/assets/zh-CN/orbitcell-order-settings.png"><img src="docs/assets/zh-CN/orbitcell-order-settings.png" alt="排序设置：搜索、移动按钮、位置数字以及明确的保存和取消操作" width="100%"></a></p>
 
 Agent 顺序保存在工作台配置中，各入口共用；其他卡片顺序保存在当前浏览器。调整展示位置不会改变 Agent 启用状态、任务设置或正在运行的工作。
 

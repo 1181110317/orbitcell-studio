@@ -136,9 +136,18 @@ When OrbitCell is behind a reverse proxy, set `ORBITCELL_ALLOWED_HOSTS` to the p
 
 ## Desktop and browser settings
 
-The in-app **Settings** panel stores non-secret preferences in `data/settings.json`:
+Open **Settings → Interface and runtime → Interface language** to choose Simplified
+Chinese, English, Arabic, or **System**. Language changes immediately and is saved
+in the current browser as `ah.locale`. System mode matches the browser's preferred
+languages to installed catalogs. Local extension packs can add catalogs; registered
+labels fall back to English when a translation is missing. Conversation text,
+model IDs, code and input drafts are preserved.
 
-- theme, UI scale and language
+Language, theme, zoom and page display preferences are browser-local. Changing
+language does not save a server configuration or require a restart.
+
+The in-app **Settings** panel stores application preferences in `data/settings.json`:
+
 - sound and terminal shell
 - agent paths and custom agents
 - provider routes and recent models

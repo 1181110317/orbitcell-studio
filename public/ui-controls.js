@@ -105,7 +105,7 @@ function enhanceModelInput(input,source) {
     const values=typeof source==='function'?source():source||[],query=all?'':input.value.trim().toLowerCase();
     rows=values.map(m=>typeof m==='string'?{id:m,name:m}:m).filter(m=>m?.id&&(!query||[m.id,m.name].join(' ').toLowerCase().includes(query))).slice(0,100);
     index=Math.max(0,rows.findIndex(m=>m.id===input.value));
-    popup.innerHTML=rows.map((m,i)=>`<button type="button" role="option" id="${popup.id}-${i}" aria-selected="${m.id===input.value}" class="${i===index?'is-focused':''}" data-model-option="${i}"><span><b>${esc(m.name||m.id)}</b>${m.name&&m.name!==m.id?`<small>${esc(m.id)}</small>`:''}</span><i>${m.id===input.value?window.AgentHubIcons.svg('check'):''}</i></button>`).join('')||'<p>没有匹配项，可直接输入模型 ID。</p>';
+    popup.innerHTML=rows.map((m,i)=>`<button type="button" role="option" id="${popup.id}-${i}" aria-selected="${m.id===input.value}" class="${i===index?'is-focused':''}" data-model-option="${i}"><span><b data-i18n-ignore>${esc(m.name||m.id)}</b>${m.name&&m.name!==m.id?`<small>${esc(m.id)}</small>`:''}</span><i>${m.id===input.value?window.AgentHubIcons.svg('check'):''}</i></button>`).join('')||'<p>没有匹配项，可直接输入模型 ID。</p>';
     popup.querySelectorAll('[data-model-option]').forEach(button=>{button.onmousedown=e=>e.preventDefault();button.onclick=()=>choose(rows[Number(button.dataset.modelOption)]);});
     popup.hidden=false;input.setAttribute('aria-expanded','true');toggle.setAttribute('aria-expanded','true');input.setAttribute('aria-activedescendant',popup.id+'-'+index);position();
   }

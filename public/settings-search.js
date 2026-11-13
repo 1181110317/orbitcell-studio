@@ -9,9 +9,9 @@ window.AgentHubSettingsSearch=(()=>{
     for(const pane of panes)for(const control of pane.querySelectorAll('input:not([type=hidden]),select,textarea')){
       if(control.matches('[data-conversation-search]'))continue;
       const row=control.closest('[data-conversation-item],.fld,.settings-pref-row,label')||control.parentElement;if(!row||seen.has(row))continue;seen.add(row);
-      const copy=row.cloneNode(true);copy.querySelectorAll('input,select,textarea,button').forEach(n=>n.remove());
-      const name=(copy.querySelector('b,label')?.textContent||control.getAttribute('aria-label')||copy.textContent).trim().replace(/\s+/g,' '),description=copy.querySelector('small')?.textContent.trim()||'';
-      if(name)entries.push({pane,row,control,name:name.slice(0,150),description,section:pane.querySelector('h4')?.textContent||'设置',text:(name+' '+description).toLocaleLowerCase()});
+      const original=row.querySelector('b,label'),source=(node,omit='')=>window.AgentHubLocale?.sourceText(node,omit)??node?.textContent??'';
+      const name=(original?source(original):control.getAttribute('aria-label')||source(row,'input,select,textarea,button')).trim().replace(/\s+/g,' '),description=source(row.querySelector('small')).trim();
+      if(name)entries.push({pane,row,control,name:name.slice(0,150),description,section:source(pane.querySelector('h4'))||'设置',text:(name+' '+description).toLocaleLowerCase()});
     }
     const current=()=>root.querySelector('[data-settings-jump].active')?.dataset.settingsJump+'-panel';
     const clear=()=>{clearTimeout(timer);field.value='';clearButton.hidden=true;results.hidden=true;for(const pane of panes)pane.hidden=pane.id!==current();};
@@ -23,7 +23,7 @@ window.AgentHubSettingsSearch=(()=>{
     };
     const draw=()=>{
       const query=field.value.trim().toLocaleLowerCase();if(!query){clear();return;}clearButton.hidden=false;panes.forEach(p=>p.hidden=true);results.hidden=false;
-      const hits=entries.filter(e=>query.split(/\s+/).every(word=>e.text.includes(word)||e.section.toLocaleLowerCase().includes(word)));
+      const hits=entries.filter(e=>{const translated=window.AgentHubLocale?.translate(e.name+' '+e.description)||'';const section=window.AgentHubLocale?.translate(e.section)||e.section;const haystack=(e.text+' '+e.section+' '+translated+' '+section+' '+(window.AgentHubLocale?.translate(e.name)||'')+' '+(window.AgentHubLocale?.translate(e.description)||'')).toLocaleLowerCase();return query.split(/\s+/).every(word=>haystack.includes(word));});
       results.replaceChildren();const heading=document.createElement('p');heading.className='dialog-note';heading.textContent=`全部设置 · ${hits.length} 项结果`;results.append(heading);
       if(!hits.length){const empty=document.createElement('p');empty.textContent='没有匹配的设置，试试“缓存”“字体”或“终端”。';results.append(empty);}
       for(const item of hits){const button=document.createElement('button');button.type='button';button.className='settings-search-hit';const title=document.createElement('b'),path=document.createElement('small');title.textContent=item.name;path.textContent=item.section+(item.description?' · '+item.description:'');button.append(title,path);button.onclick=()=>open(item);results.append(button);}

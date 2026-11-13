@@ -1799,12 +1799,12 @@ function renderAgents(){
   const grid=$('#agentGrid'),scrollTop=grid.scrollTop,selected=S.agentSelection,multiple=S.agentSelectMode==='multiple',icon=name=>window.AgentHubIcons.svg(name);
   const listed=window.OrbitCellLayout.agents(S.agents.filter(a=>!a.unavailable&&S.settings.agentPreferences?.[a.id]?.enabled!==false&&!S.settings.agentPreferences?.[a.id]?.hidden));
   const checked=id=>multiple?(selected===null||selected.includes(id)):S.curAgent===id;
-  grid.innerHTML='<div class="agent-filter-toolbar"><span>'+ (multiple?'筛选会话中的 Agent':'选择 Agent 开始对话')+'</span><button type="button" data-agent-mode="'+(multiple?'single':'multiple')+'">'+(multiple?'返回选择':'多选筛选')+'</button></div>'+listed.map(a=>'<button type="button" class="agent-card agent-choice '+(checked(a.id)?'active':'')+'" data-agent-choice="'+esc(a.id)+'" aria-pressed="'+checked(a.id)+'"><span class="ag-glyph">'+agentGlyph(a.id)+'</span><span class="ag-name">'+esc(a.name)+'</span><span class="ag-selection" aria-hidden="true">'+icon('check')+'</span><span class="ag-dot '+(agentIsReady(a)?'on':a.pathFound?'warn':'off')+'" title="'+esc(agentStatusText(a))+'"></span></button>').join('')+'<div class="agent-picker-footer"><button type="button" class="btn-mini" data-agent-all>'+icon('list')+'查看全部会话</button><button type="button" class="btn-mini" data-agent-manage>'+icon('gear')+'管理 Agent</button></div>';
+  grid.innerHTML='<div class="agent-filter-toolbar"><span>'+ (multiple?'筛选会话中的 Agent':'选择 Agent 开始对话')+'</span><button type="button" data-agent-mode="'+(multiple?'single':'multiple')+'">'+(multiple?'返回选择':'多选筛选')+'</button></div>'+listed.map(a=>'<button type="button" class="agent-card agent-choice '+(checked(a.id)?'active':'')+'" data-agent-choice="'+esc(a.id)+'" aria-pressed="'+checked(a.id)+'"><span class="ag-glyph">'+agentGlyph(a.id)+'</span><span '+(a.custom?'data-i18n-ignore':'')+' class="ag-name">'+esc(a.name)+'</span><span class="ag-selection" aria-hidden="true">'+icon('check')+'</span><span class="ag-dot '+(agentIsReady(a)?'on':a.pathFound?'warn':'off')+'" title="'+esc(agentStatusText(a))+'"></span></button>').join('')+'<div class="agent-picker-footer"><button type="button" class="btn-mini" data-agent-all>'+icon('list')+'查看全部会话</button><button type="button" class="btn-mini" data-agent-manage>'+icon('gear')+'管理 Agent</button></div>';
   const label=document.getElementById('agentFilterLabel');
   if(label){
     const agents=multiple?(selected===null?listed:S.agents.filter(a=>selected.includes(a.id))):[agentMeta(S.curAgent)];
     const names=agents.map(a=>a.name).join('、');
-    label.innerHTML='<span class="agent-summary-icons">'+agents.slice(0,4).map(a=>'<i class="agent-summary-icon">'+agentGlyph(a.id)+'</i>').join('')+'</span><span class="agent-summary-copy">'+esc(multiple?(selected===null?'全部 Agent':agents.length+' 个 Agent'):agentMeta(S.curAgent).name)+'</span>';
+    label.innerHTML='<span class="agent-summary-icons">'+agents.slice(0,4).map(a=>'<i class="agent-summary-icon">'+agentGlyph(a.id)+'</i>').join('')+'</span><span '+(!multiple&&agentMeta(S.curAgent).custom?'data-i18n-ignore':'')+' class="agent-summary-copy">'+esc(multiple?(selected===null?'全部 Agent':agents.length+' 个 Agent'):agentMeta(S.curAgent).name)+'</span>';
     label.title=names||'未选择 Agent';
     label.parentElement.firstElementChild.textContent=multiple?'会话筛选':'当前 Agent';
   }
@@ -2036,7 +2036,7 @@ function renderSessions() {
     head.innerHTML = `
       <span class="proj-chev${isCollapsed ? '' : ' open'}">${UI_ICONS.chevron}</span>
       <span class="proj-ico">${kindIcon(g.kind)}</span>
-      <span class="proj-name">${esc(g.name)}</span>
+      <span class="proj-name" ${g.cwd?'':'data-i18n-text="'+esc(g.name)+'"'}>${esc(g.cwd?g.name:window.AgentHubLocale?.translate(g.name)??g.name)}</span>
       ${locationLabel ? `<span class="proj-location" title="${esc(g.addr || locationLabel)}">${esc(locationLabel)}</span>` : ''}
       <span class="proj-count">${g.sessions.length}</span>
       <button class="proj-new" data-pnew="1" title="在此项目下新建任务">${UI_ICONS.plus}</button>`;
@@ -2073,7 +2073,7 @@ function renderSessions() {
   if (snoozedList.length) {
     const head = document.createElement('div');
     head.className = 'proj-head shelf-head';
-    head.innerHTML = '<span class="proj-chev proj-chev-placeholder">' + UI_ICONS.chevron + '</span><span class="proj-ico">' + window.AgentHubIcons.svg('clock') + '</span><span class="proj-name">休眠中</span><span class="proj-count">' + snoozedList.length + '</span>';
+    head.innerHTML = '<span class="proj-chev proj-chev-placeholder">' + UI_ICONS.chevron + '</span><span class="proj-ico">' + window.AgentHubIcons.svg('clock') + '</span><span class="proj-name" data-i18n-text="休眠中">'+(window.AgentHubLocale?.translate('休眠中')??'休眠中')+'</span><span class="proj-count">' + snoozedList.length + '</span>';
     wrap.appendChild(head);
     for (const s of snoozedList.sort((a, b) => (a.snoozedUntil || 0) - (b.snoozedUntil || 0))) wrap.appendChild(sessionItemEl(s, true));
   }
@@ -2084,7 +2084,7 @@ function renderSessions() {
     const head = document.createElement('div');
     head.className = 'proj-head shelf-head';
     head.setAttribute('aria-expanded', String(open));
-    head.innerHTML = '<span class="proj-chev' + (open ? ' open' : '') + '">' + UI_ICONS.chevron + '</span><span class="proj-ico">' + window.AgentHubIcons.svg('archive') + '</span><span class="proj-name">已收起</span><span class="proj-count">' + settledList.length + '</span>';
+    head.innerHTML = '<span class="proj-chev' + (open ? ' open' : '') + '">' + UI_ICONS.chevron + '</span><span class="proj-ico">' + window.AgentHubIcons.svg('archive') + '</span><span class="proj-name" data-i18n-text="已收起">'+(window.AgentHubLocale?.translate('已收起')??'已收起')+'</span><span class="proj-count">' + settledList.length + '</span>';
     bindKeyboardAction(head, () => { storageSet('ah.settledOpen', open ? '0' : '1'); renderSessions(); });
     wrap.appendChild(head);
     if (open) for (const s of settledList.sort((a, b) => (b.settledAt || 0) - (a.settledAt || 0))) wrap.appendChild(sessionItemEl(s, true));
@@ -3014,10 +3014,10 @@ async function renderGitPanel(keepDiffPath) {
       const result = await gitCall('/api/git/stage-all', { cwd, stage });
       if (!result.ok) throw new Error(result.error || '更新暂存区失败');
       toast(stage ? `已暂存 ${result.count} 个文件` : `已取消暂存 ${result.count} 个文件`, 'ok');
-      if (_gitCwd === cwd && $('#dlgTitle').textContent === '项目变更中心' && !$('#overlay').classList.contains('hidden')) await renderGitPanel();
+      if (_gitCwd === cwd && (window.AgentHubLocale?.sourceText($('#dlgTitle'))??$('#dlgTitle').textContent) === '项目变更中心' && !$('#overlay').classList.contains('hidden')) await renderGitPanel();
     } catch (e) {
       toast(e.message || '更新暂存区失败', 'err');
-      if (_gitCwd === cwd && $('#dlgTitle').textContent === '项目变更中心' && !$('#overlay').classList.contains('hidden')) await renderGitPanel();
+      if (_gitCwd === cwd && (window.AgentHubLocale?.sourceText($('#dlgTitle'))??$('#dlgTitle').textContent) === '项目变更中心' && !$('#overlay').classList.contains('hidden')) await renderGitPanel();
     }
   });
   $$('#dlgBody [data-git-stage], #dlgBody [data-git-unstage]').forEach(btn => btn.onclick = async event => {
@@ -3031,10 +3031,10 @@ async function renderGitPanel(keepDiffPath) {
       if (!result.ok) throw new Error(result.error || '更新暂存区失败');
       toast(stage ? '已暂存 ' + file : '已取消暂存 ' + file, 'ok');
       // 刷新与暂存请求可能交错；只要仍在同一仓库的 Git 页面，就用最新索引重绘。
-      if (_gitCwd === cwd && $('#dlgTitle').textContent === '项目变更中心' && !$('#overlay').classList.contains('hidden')) await renderGitPanel(file);
+      if (_gitCwd === cwd && (window.AgentHubLocale?.sourceText($('#dlgTitle'))??$('#dlgTitle').textContent) === '项目变更中心' && !$('#overlay').classList.contains('hidden')) await renderGitPanel(file);
     } catch (e) {
       toast(e.message || '更新暂存区失败', 'err');
-      if (_gitCwd === cwd && $('#dlgTitle').textContent === '项目变更中心' && !$('#overlay').classList.contains('hidden')) await renderGitPanel();
+      if (_gitCwd === cwd && (window.AgentHubLocale?.sourceText($('#dlgTitle'))??$('#dlgTitle').textContent) === '项目变更中心' && !$('#overlay').classList.contains('hidden')) await renderGitPanel();
     }
   });
   const filesToggle = $('#gitFilesToggle');
@@ -3481,7 +3481,7 @@ function openCompareDialog() {
   const agents = S.agents.filter(a => a && a.found && !a.unavailable);
   const first = agents.some(a => a.id === S.curAgent) ? S.curAgent : (agents[0] && agents[0].id || '');
   const second = agents.find(a => a.id !== first);
-  const options = selected => agents.map(a => `<option value="${esc(a.id)}"${a.id === selected ? ' selected' : ''}>${esc(a.name)}</option>`).join('');
+  const options = selected => agents.map(a => `<option value="${esc(a.id)}"${a.id === selected ? ' selected' : ''} ${a.custom?'data-i18n-ignore':''}>${esc(a.name)}</option>`).join('');
   const recent = savedComparisons();
   openDlg('多 Agent 对比', `<div class="compare-dialog">
     <div class="compare-mode-banner"><span class="compare-mode-icon">◎</span><div><b>协作任务板</b><small>两个 Agent 从同一快照并行工作，回答、文件改动、Token 和费用集中对照。</small></div></div>
@@ -3828,7 +3828,7 @@ async function paintProviderHealth(force = false) {
     if (!provider || !(provider.maskedKey || provider.apiKey)) {
       cell.textContent = '未配置';
       cell.title = '未配置 API Key 或额度令牌';
-    } else if (cell.textContent === '—' || cell.textContent === '读取中…') {
+    } else if (['—','读取中…'].includes(window.AgentHubLocale?.sourceText(cell)??cell.textContent)) {
       cell.textContent = '未读取';
       cell.title = '该入口暂未返回额度数据，可点击“查余额”重试';
     }
@@ -7694,7 +7694,7 @@ function renderComposer(s) {
   const routeDefaults = agentTargetDefaults(S.curAgent, s?.remoteHostId || '');
   const cur = s ? s.providerId : routeDefaults.providerId || current[S.curAgent] || current[providerAgent] || (implicit && implicit.id) || '';
   $('#selProvider').innerHTML = (S.curAgent === 'acp:workbuddy' ? '<option value="">WorkBuddy 内置配置</option>' : '<option value="">（默认供应商）</option>') + provs.map(p =>
-    `<option value="${esc(p.id)}" ${p.id === cur ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+    `<option value="${esc(p.id)}" ${p.id === cur ? 'selected' : ''} data-i18n-ignore>${esc(p.name)}</option>`).join('');
   const a = agentMeta(S.curAgent);
   // 没有会话级覆盖时显示供应商为该模型配置的默认推理强度；会话创建/发送
   // 时会把这个值保存到会话，之后仍可在发送栏单独切换。
@@ -8143,7 +8143,7 @@ function openModelMenu(anchor, options = {}) {
   const menu = flyMenuEl;
   menu.classList.remove('choosing-provider');
   menu.setAttribute('role', 'dialog'); menu.setAttribute('aria-label', '模型与推理强度');
-  menu.innerHTML = `<div class="model-picker-head"><div><b>模型与推理</b></div><button type="button" data-model-close aria-label="关闭模型选择">${window.AgentHubUI.icon('close')}</button></div>${provider?`<button type="button" class="model-picker-source" data-model-provider><i>${window.AgentHubIcons.provider(provider)}</i><span>${esc(provider.name)}</span><small>切换供应商</small>${window.AgentHubUI.icon('chevronDown')}</button>`:native?`<div class="model-picker-native">${agentGlyph(agent)}<span>${esc(agentMeta(agent).name)} 原生模型</span></div>`:`<button type="button" class="model-picker-source" data-model-add-provider>${window.AgentHubUI.icon('plus')}<span>添加供应商</span>${window.AgentHubUI.icon('chevronRight')}</button>`}<label class="model-picker-search">${window.AgentHubUI.icon('search')}<input type="search" data-model-search placeholder="搜索模型…" aria-label="搜索模型" autocomplete="off"></label><div class="model-picker-list" role="listbox" aria-label="模型目录"></div><div class="model-picker-effort"></div><div class="model-picker-footer"><button type="button" data-model-custom>${window.AgentHubUI.icon('code')}<span>自定义模型</span></button><button type="button" data-model-defaults title="模型默认设置">${window.AgentHubUI.icon('defaultSettings')}<span>默认设置</span></button><button type="button" data-model-refresh title="刷新模型目录">${window.AgentHubUI.icon('refresh')}<span>刷新</span></button></div>`;
+  menu.innerHTML = `<div class="model-picker-head"><div><b>模型与推理</b></div><button type="button" data-model-close aria-label="关闭模型选择">${window.AgentHubUI.icon('close')}</button></div>${provider?`<button type="button" class="model-picker-source" data-model-provider><i>${window.AgentHubIcons.provider(provider)}</i><span data-i18n-ignore>${esc(provider.name)}</span><small>切换供应商</small>${window.AgentHubUI.icon('chevronDown')}</button>`:native?`<div class="model-picker-native">${agentGlyph(agent)}<span>${esc(agentMeta(agent).name)} 原生模型</span></div>`:`<button type="button" class="model-picker-source" data-model-add-provider>${window.AgentHubUI.icon('plus')}<span>添加供应商</span>${window.AgentHubUI.icon('chevronRight')}</button>`}<label class="model-picker-search">${window.AgentHubUI.icon('search')}<input type="search" data-model-search placeholder="搜索模型…" aria-label="搜索模型" autocomplete="off"></label><div class="model-picker-list" role="listbox" aria-label="模型目录"></div><div class="model-picker-effort"></div><div class="model-picker-footer"><button type="button" data-model-custom>${window.AgentHubUI.icon('code')}<span>自定义模型</span></button><button type="button" data-model-defaults title="模型默认设置">${window.AgentHubUI.icon('defaultSettings')}<span>默认设置</span></button><button type="button" data-model-refresh title="刷新模型目录">${window.AgentHubUI.icon('refresh')}<span>刷新</span></button></div>`;
   const active = () => flyMenuAnchor === anchor && menu.dataset.menuKind === 'model' && !menu.classList.contains('hidden') && sessionId === S.curSessionId && agent === S.curAgent && provider?.id === currentProvider()?.id && (!native||nativeKey===nativeModelKey());
   const list = menu.querySelector('.model-picker-list'), effort = menu.querySelector('.model-picker-effort');
   const effortByModel = new Map([[$('#inpModel').value, $('#selEffort').value]]);
@@ -8197,7 +8197,7 @@ function openModelMenu(anchor, options = {}) {
     const matches = choices.filter(id => [id, metadata.find(row => row.id === id)?.name].filter(Boolean).join(' ').toLowerCase().includes(query));
     list.innerHTML = `<button type="button" class="model-picker-option" role="option" aria-selected="${!$('#inpModel').value}" data-model-id=""><span><b>默认模型</b><small>${esc(nativeState?.currentModelId||'跟随连接或 Agent 配置')}</small></span>${window.AgentHubUI.icon('check')}</button>` + matches.slice(0, 100).map(id => {
       const row = metadata.find(row => row.id === id), name = row?.name || id;
-      return `<button type="button" class="model-picker-option" role="option" aria-selected="${id === $('#inpModel').value}" data-model-id="${esc(id)}" title="${esc(id)}"><span><b>${esc(name)}</b>${name !== id ? `<small>${esc(id)}</small>` : ''}</span>${window.AgentHubUI.icon('check')}</button>`;
+      return `<button type="button" class="model-picker-option" role="option" aria-selected="${id === $('#inpModel').value}" data-model-id="${esc(id)}" title="${esc(id)}"><span><b data-i18n-ignore>${esc(name)}</b>${name !== id ? `<small>${esc(id)}</small>` : ''}</span>${window.AgentHubUI.icon('check')}</button>`;
     }).join('') + (!matches.length && query ? '<p class="model-picker-empty">没有匹配的模型，可在下方输入 ID。</p>' : matches.length > 100 ? '<p class="model-picker-empty">输入名称可筛选其余模型</p>' : '')
       + (native?`<p class="model-picker-empty" role="status">${esc(nativeState.pending?'正在读取原生模型目录…':nativeState.error||nativeState.note||'点击刷新读取 Agent 原生模型目录')}</p>`:'');
     list.querySelectorAll('[data-model-id]').forEach(button => button.onclick = () => select(button.dataset.modelId));
@@ -8281,7 +8281,7 @@ function dlgFocusable() {
 function selectControlLabel(sel) {
   const field = sel.closest('.fld');
   const label = field && field.querySelector(':scope > label');
-  if(label){const copy=label.cloneNode(true);copy.querySelectorAll('select,button,input').forEach(node=>node.remove());return copy.textContent.trim()||sel.getAttribute('aria-label')||'选择';}
+  if(label){const copy=label.cloneNode(true);copy.querySelectorAll('select,button,input').forEach(node=>node.remove());return (window.AgentHubLocale?.sourceText(label,'select,button,input')??copy.textContent).trim()||sel.getAttribute('aria-label')||'选择';}
   return ({ matrixAgent: 'Agent' }[sel.id] || sel.getAttribute('aria-label') || '选择');
 }
 let selectControlSequence=0;
@@ -8313,8 +8313,10 @@ function enhanceDialogSelects(root) {
     sel.insertAdjacentElement('afterend', button);
     const sync = () => {
       const text = selText(sel) || '—';
+      const original=sel.options[sel.selectedIndex];
+      value.toggleAttribute('data-i18n-ignore',!!original?.closest('[data-i18n-ignore]'));
       value.textContent = text;
-      button.setAttribute('aria-label', `${label}：${text}`);
+      button.setAttribute('aria-label', `${window.AgentHubLocale?.translate(label)??label}: ${original?.closest('[data-i18n-ignore]')?text:window.AgentHubLocale?.translate(text)??text}`);
       button.disabled = !!sel.disabled;
       button.hidden = !!sel.hidden;
     };
@@ -8395,15 +8397,16 @@ function openDlg(title, bodyHtml) {
   const dlg = $('#dlg');
   const body = $('#dlgBody');
   const alreadyOpen = !overlay.classList.contains('hidden');
-  const sameDlg = alreadyOpen && $('#dlgTitle').textContent === title;
+  const currentTitle = window.AgentHubLocale?.sourceText($('#dlgTitle'))??$('#dlgTitle').textContent;
+  const sameDlg = alreadyOpen && currentTitle === title;
   if (!alreadyOpen) dlgReturnFocus = document.activeElement;
-  else if ($('#dlgTitle').textContent !== title) {
+  else if (!sameDlg) {
     // 子页面保留上一页的真实 DOM：输入值、事件绑定、滚动位置都可原样恢复。
     const content = document.createDocumentFragment();
     const scrollers = [...body.querySelectorAll('*')].filter(el => el.scrollTop || el.scrollLeft)
       .map(el => ({ el, top: el.scrollTop, left: el.scrollLeft }));
     while (body.firstChild) content.appendChild(body.firstChild);
-    dlgStack.push({ seq: dlgSeq, title: $('#dlgTitle').textContent, content, bodyClass: body.className,
+    dlgStack.push({ seq: dlgSeq, title: currentTitle, content, bodyClass: body.className,
       top: body.scrollTop, left: body.scrollLeft, scrollers, focus: document.activeElement,
       preview: overlay.classList.contains('preview-mode'), provider: overlay.classList.contains('provider-mode'),
       previewDialog: dlg.classList.contains('preview-dialog'), providerDialog: dlg.classList.contains('provider-dialog-mode') });
@@ -8446,7 +8449,7 @@ function closeDlg() {
   const leavingSettings = !!body.querySelector('.settings-dialog');
   const previous = dlgStack.pop();
   if (previous) {
-    if ($('#dlgTitle').textContent === '用量统计') disposeStatsCharts();
+    if ((window.AgentHubLocale?.sourceText($('#dlgTitle'))??$('#dlgTitle').textContent) === '用量统计') disposeStatsCharts();
     dlgSeq = previous.seq;
     overlay.classList.toggle('preview-mode', previous.preview);
     overlay.classList.toggle('provider-mode', previous.provider);
@@ -13319,6 +13322,10 @@ async function showSettings(preferredSection) {
     </div>
     <section class="settings-source-card">${settingsProvenanceHtml()}</section>
     <h4 id="settings-preferences" data-settings-section="settings-preferences" class="dialog-section-title settings-section-title">界面与运行</h4>
+    <div class="form-grid settings-option-grid settings-language-grid">
+      <div class="fld"><label for="setLocale">界面语言</label><select id="setLocale" data-ui-locale data-settings-local="1" aria-label="界面语言">${(window.AgentHubLocale?.catalog()||[]).map(l=>`<option value="${esc(l.id)}" data-i18n-ignore ${l.id===window.AgentHubLocale.selection?'selected':''}>${esc(l.name)}</option>`).join('')}</select><small>即时生效，保存在当前浏览器。</small></div>
+      <div class="fld dialog-note" style="align-self:center">语言设置只改变界面文字，聊天内容、代码和输入草稿保留原文。</div>
+    </div>
     <div class="form-grid settings-option-grid">
       <div class="fld setting-range">
         <label>界面缩放</label>
@@ -13459,6 +13466,7 @@ async function showSettings(preferredSection) {
     });
   }
   arrangeSettingsSections(preferredSection || 'settings-preferences');
+  $('#setLocale').onchange=event=>window.AgentHubLocale.set(event.target.value);
   bindConversationSettings($('#dlgBody'));
   $('[data-open-conversation-settings]').onclick = () => $('[data-settings-jump="settings-conversation"]').click();
   $('#settingsAgentCenter').onclick = () => { closeDlg(); window.AgentHubAgentCenter?.open(); };
@@ -14571,7 +14579,7 @@ function openFlyMenu(anchor, items, onItem, options = {}) {
   flyMenuEl.innerHTML = items.map((it, i) =>
     it.header ? '<div class="fly-group">' + esc(it.label) + '</div>'
     : it.note ? '<div class="fly-note" role="' + (it.error ? 'alert' : 'status') + '">' + esc(it.label) + '</div>'
-    : '<div class="fly-item' + (it.on ? ' dd-on' : '') + (it.danger ? ' fly-danger' : '') + '"' + (it.act||it.fetch||it.customModel||it.action?' data-command-icon="1"':'') + ' data-i="' + i + '">' + (it.file ? '<span class="fly-change-file">'+esc(it.file.path)+'</span><span class="fly-change-counts">'+changeLineStats(it.file)+'</span>' : it.icon ? '<span class="fly-command-icon" aria-hidden="true">'+window.AgentHubUI.icon(it.icon)+'</span><span class="fly-command-copy"><span>'+esc(it.label)+'</span>'+(it.description?'<small>'+esc(it.description)+'</small>':'')+'</span>' : esc(it.label)) + '</div>'
+    : '<div class="fly-item' + (it.on ? ' dd-on' : '') + (it.danger ? ' fly-danger' : '') + '"' + (it.act||it.fetch||it.customModel||it.action?' data-command-icon="1"':'') + (it.i18nIgnore?' data-i18n-ignore':'') + ' data-i="' + i + '">' + (it.file ? '<span class="fly-change-file">'+esc(it.file.path)+'</span><span class="fly-change-counts">'+changeLineStats(it.file)+'</span>' : it.icon ? '<span class="fly-command-icon" aria-hidden="true">'+window.AgentHubUI.icon(it.icon)+'</span><span class="fly-command-copy"><span>'+esc(it.label)+'</span>'+(it.description?'<small>'+esc(it.description)+'</small>':'')+'</span>' : esc(it.label)) + '</div>'
   ).join('');
   window.AgentHubUI?.icons(flyMenuEl);
   const real = items.filter(it => !it.header && !it.note);
@@ -14600,7 +14608,7 @@ function openFlyMenu(anchor, items, onItem, options = {}) {
   });
 }
 function selText(sel) {
-  return sel && sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
+  const option=sel?.options[sel.selectedIndex];return option?(window.AgentHubLocale?.sourceText(option)??option.textContent):'';
 }
 function permissionOptionMeta(agent, value, fallbackLabel = '') {
   return agentPermissionModes(agent).find(o=>o.value===value)||{icon:'permissionDefault',label:fallbackLabel||value};
@@ -14641,7 +14649,7 @@ function openSelectMenu(sel, anchor) {
     value:o.value,on:o.selected,disabled:o.disabled,
   } : sel.id === 'selPerm' ? { ...permissionOptionMeta(S.curAgent,o.value,o.textContent), value: o.value, on: o.selected, disabled: o.disabled }
     : sel.id === 'selEffort' ? { icon: 'reasoningDial', label: effortLabels[o.value] || '默认', description: o.value ? o.value + ' · 由当前 Agent 和模型支持程度决定' : '使用 Agent 或供应商的默认推理预算', value: o.value, on: o.selected, disabled: o.disabled }
-      : { label:o.textContent,value:o.value,on:o.selected,disabled:o.disabled });
+      : { label:window.AgentHubLocale?.sourceText(o)??o.textContent,value:o.value,on:o.selected,disabled:o.disabled,i18nIgnore:!!o.closest('[data-i18n-ignore]') });
   openFlyMenu(anchor, items, (it) => {
     sel.value = it.value;
     sel.dispatchEvent(new Event('change'));
@@ -14750,7 +14758,7 @@ function openNewTaskAgentChooser(context) {
   const root=document.querySelector('.new-task-chooser'),guard=dialogGuard();
   const draw=()=>{
     const query=root.querySelector('[data-task-agent-search]').value.trim().toLowerCase();
-    root.querySelector('.new-task-agents').innerHTML=window.OrbitCellLayout.agents(agents).filter(a=>(a.name+' '+a.id).toLowerCase().includes(query)).map(a=>'<button type="button" class="new-task-agent" data-task-agent="'+esc(a.id)+'" '+(agentSupportsEnvironment(a,context.hostId)?'':'disabled')+'><i>'+agentGlyph(a.id)+'</i><span><strong>'+esc(a.name)+'</strong><small>'+esc(!agentSupportsEnvironment(a,context.hostId)?'仅支持本机':context.hostId?'按此环境的配置运行':agentStatusText(a))+'</small></span>'+window.AgentHubUI.icon('arrowRight')+'</button>').join('')||'<p class="new-task-empty">没有匹配的 Agent</p>';
+    root.querySelector('.new-task-agents').innerHTML=window.OrbitCellLayout.agents(agents).filter(a=>(a.name+' '+a.id).toLowerCase().includes(query)).map(a=>'<button type="button" class="new-task-agent" data-task-agent="'+esc(a.id)+'" '+(agentSupportsEnvironment(a,context.hostId)?'':'disabled')+'><i>'+agentGlyph(a.id)+'</i><span><strong '+(a.custom?'data-i18n-ignore':'')+'>'+esc(a.name)+'</strong><small>'+esc(!agentSupportsEnvironment(a,context.hostId)?'仅支持本机':context.hostId?'按此环境的配置运行':agentStatusText(a))+'</small></span>'+window.AgentHubUI.icon('arrowRight')+'</button>').join('')||'<p class="new-task-empty">没有匹配的 Agent</p>';
     root.querySelectorAll('[data-task-agent]').forEach(button=>button.onclick=async()=>{
       if(!guard()||button.disabled)return;
       const id=button.dataset.taskAgent;closeDlg();

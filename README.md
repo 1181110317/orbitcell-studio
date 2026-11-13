@@ -22,7 +22,7 @@
 Agents keep their own runtimes and supported controls. OrbitCell organizes the connections, project context and everyday development work around them.
 
 <p align="center">
-  <a href="docs/assets/orbitcell-agents.png"><img src="docs/assets/orbitcell-agents.png" alt="Agent workspace with versions, environments, model settings and conversation actions" width="100%"></a>
+  <a href="docs/assets/en/orbitcell-agents.png"><img src="docs/assets/en/orbitcell-agents.png" alt="Agent workspace with versions, environments, model settings and conversation actions" width="100%"></a>
   <sub>One place for Agent settings, versions, models and environments. Screenshots use isolated demo data.</sub>
 </p>
 
@@ -66,9 +66,9 @@ Agents keep their own runtimes and supported controls. OrbitCell organizes the c
 
 Configure a provider once, then manage its models and account information in that provider's page. Cards can show balances, credits and independent 5-hour, weekly and monthly allowances together.
 
-<p><a href="docs/assets/orbitcell-quota-cards.png"><img src="docs/assets/orbitcell-quota-cards.png" alt="Provider cards with model actions, balances and three allowance periods" width="100%"></a></p>
-<p><a href="docs/assets/orbitcell-quota-detail.png"><img src="docs/assets/orbitcell-quota-detail.png" alt="Detailed account readings with separate periods and reset information" width="100%"></a></p>
-<p><a href="docs/assets/orbitcell-quota-chat.png"><img src="docs/assets/orbitcell-quota-chat.png" alt="Conversation header with the selected provider's quota information" width="100%"></a></p>
+<p><a href="docs/assets/en/orbitcell-quota-cards.png"><img src="docs/assets/en/orbitcell-quota-cards.png" alt="Provider cards with model actions, balances and three allowance periods" width="100%"></a></p>
+<p><a href="docs/assets/en/orbitcell-quota-detail.png"><img src="docs/assets/en/orbitcell-quota-detail.png" alt="Detailed account readings with separate periods and reset information" width="100%"></a></p>
+<p><a href="docs/assets/en/orbitcell-quota-chat.png"><img src="docs/assets/en/orbitcell-quota-chat.png" alt="Conversation header with the selected provider's quota information" width="100%"></a></p>
 
 Readings depend on the provider's API and account permissions. Missing data stays unknown; upstream accounts behind a gateway are not combined into one balance. [Quota sources and custom mappings →](docs/provider-quotas.md)
 
@@ -99,6 +99,17 @@ Use an installed Agent CLI, a configured ACP adapter, or the built-in engine wit
 
 ## Make it yours
 
+<details>
+<summary><strong>Choose your interface language</strong> · English, Chinese and language packs</summary>
+
+Open **Settings → Interface and runtime → Interface language**. Choose English, 简体中文, العربية or **System**. The selection applies immediately and is remembered in the current browser; system mode follows its preferred languages. Local extension packs can add more languages, with English fallback for registered labels.
+
+<p><a href="docs/assets/en/orbitcell-language-settings.png"><img src="docs/assets/en/orbitcell-language-settings.png" alt="English language settings in the workspace preferences" width="100%"></a></p>
+
+Language changes interface labels. Conversation text, code, model IDs and drafts keep their original content.
+
+</details>
+
 <a id="arrange-your-workspace"></a>
 
 <details>
@@ -106,7 +117,7 @@ Use an installed Agent CLI, a configured ACP adapter, or the built-in engine wit
 
 Click **Adjust order** above an Agent, provider, model, project or tool list, or in the new-task chooser. Search for an entry, move it up/down or enter a position, then click **Save order**. **Cancel** keeps the saved order; **Restore default order** resets the draft. Categories remain grouped.
 
-<p><a href="docs/assets/orbitcell-order-settings.png"><img src="docs/assets/orbitcell-order-settings.png" alt="Order settings with search, move buttons, position fields and explicit Save and Cancel actions" width="100%"></a></p>
+<p><a href="docs/assets/en/orbitcell-order-settings.png"><img src="docs/assets/en/orbitcell-order-settings.png" alt="Order settings with search, move buttons, position fields and explicit Save and Cancel actions" width="100%"></a></p>
 
 Agent order is saved in workspace configuration and shared across entry points. Other card orders are saved in the current browser. Display ordering does not change enabled Agents, task settings or running work.
 

@@ -60,6 +60,10 @@ async function fixtures() {
     if (!(await api('/api/browser/status')).browser) { console.log('[settings-ui] skipped: Chrome/Edge unavailable'); return; }
     const session = await api('/api/sessions', 'POST', { agent: 'builtin', autoPerms: true, permMode: 'auto' });
     await browser('open', { url: BASE }); await waitFor(()=>ev('typeof S!=="undefined"&&S.wsReady&&S.agents.length>0'));
+    if(process.env.ORBITCELL_LOCALE_ONLY==='1'){
+      await require('./helpers/localization-ui.cjs')({api,browser,ev,waitFor,uiTask,workspaceDir:DATA,base:BASE});
+      console.log('[settings-ui] language checks passed');return;
+    }
     await check('switching Agent cancels a pending session view', async()=>{
       const state = await delay('/api/sessions/'+session.id, 'GET', `const pending=openSession(${JSON.stringify(session.id)});await switchAgent('codex');await pending;return {agent:S.curAgent,session:S.curSessionId};`);
       assert.deepEqual(state, {agent:'codex', session:null});
@@ -382,6 +386,7 @@ async function fixtures() {
       for(const file of files)assert(fs.readFileSync(file,'utf8').includes('Import question'));
       await uiTask(`window.AgentHubAgentCenter.close();`);
     });
+    await check('language settings, content preservation and localized documentation',()=>require('./helpers/localization-ui.cjs')({api,browser,ev,waitFor,uiTask,workspaceDir:DATA,base:BASE}));
     if (failures) throw Error(failures+' checks failed');
     console.log('[settings-ui] passed');
   } catch (e) { console.error(e.message); process.exitCode=1; }
