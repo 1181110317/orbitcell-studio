@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="docs/assets/orbitcell-hero.svg" alt="OrbitCell Studio — One Orbit. Infinite Possibilities." width="100%">
+<img src="docs/assets/orbitcell-hero.svg" alt="OrbitCell Studio" width="100%">
 
 <p><strong>AI Agent Development Workspace</strong></p>
 
