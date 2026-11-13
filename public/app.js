@@ -13323,8 +13323,7 @@ async function showSettings(preferredSection) {
     <section class="settings-source-card">${settingsProvenanceHtml()}</section>
     <h4 id="settings-preferences" data-settings-section="settings-preferences" class="dialog-section-title settings-section-title">界面与运行</h4>
     <div class="form-grid settings-option-grid settings-language-grid">
-      <div class="fld"><label for="setLocale">界面语言</label><select id="setLocale" data-ui-locale data-settings-local="1" aria-label="界面语言">${(window.AgentHubLocale?.catalog()||[]).map(l=>`<option value="${esc(l.id)}" data-i18n-ignore ${l.id===window.AgentHubLocale.selection?'selected':''}>${esc(l.name)}</option>`).join('')}</select><small>即时生效，保存在当前浏览器。</small></div>
-      <div class="fld dialog-note" style="align-self:center">语言设置只改变界面文字，聊天内容、代码和输入草稿保留原文。</div>
+      <div class="fld settings-language-field"><label for="setLocale">界面语言</label><select id="setLocale" data-ui-locale data-settings-local="1" aria-label="界面语言" aria-describedby="setLocaleHint">${(window.AgentHubLocale?.catalog()||[]).map(l=>`<option value="${esc(l.id)}" data-i18n-ignore ${l.id===window.AgentHubLocale.selection?'selected':''}>${esc(l.name)}</option>`).join('')}</select><small class="settings-language-help" id="setLocaleHint"><span>即时生效，保存在当前浏览器。</span><span>语言设置只改变界面文字，聊天内容、代码和输入草稿保留原文。</span></small></div>
     </div>
     <div class="form-grid settings-option-grid">
       <div class="fld setting-range">
