@@ -5,6 +5,18 @@ provider. Open the provider for the full **Account quota** panel. A conversation
 using that provider shows the same compact reading in its header; click it to
 see balances, credits, windows and reset times.
 
+Cards show quota between the provider identity and model actions. Five-hour,
+weekly and monthly windows appear together with separate progress bars and
+labels; they are not reduced to a single percentage. Balances and credits keep
+their own units below the windows. Period rows and card footers stay aligned
+within each row.
+The conversation badge includes all returned periods and opens the same detail
+panel, including on narrow screens.
+
+![Example provider cards with three simultaneous quota windows](assets/orbitcell-quota-cards.png)
+
+This preview uses an isolated dataset, not real provider accounts.
+
 Readings come from billing or usage APIs, never from a test completion. They are
 cached for five minutes. **Refresh** requests a new reading; overlapping requests
 share a query. Editing a provider or its quota settings invalidates the server

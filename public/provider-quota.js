@@ -36,6 +36,18 @@
     }
     return parts.filter(p => p.text !== '—');
   }
+  function glance(q) {
+    const amounts = money(q).filter(m => m.unlimited || finite(m.remaining) || finite(m.used));
+    const balances = amounts.length ? `<span class="pq-card-amounts">${amounts.map(m => `<span><small>${esc(m.label || '余额')}</small><b class="${finite(m.remaining) && Number(m.remaining) < 0 ? 'pq-negative' : ''}">${esc(m.unlimited ? '不限额' : finite(m.remaining) ? amount(m.remaining, m.unit) : '已用 ' + amount(m.used, m.unit))}</b></span>`).join('')}</span>` : '';
+    const windows = (q.windows || []).filter(w => finite(w.remainingPercent) || finite(w.remaining) || finite(w.used));
+    const periods = windows.length ? `<span class="pq-card-periods" style="--pq-columns:${Math.min(3, windows.length)}">${windows.map(w => {
+      const pct = finite(w.remainingPercent) ? Math.max(0, Math.min(100, Number(w.remainingPercent))) : null;
+      const value = pct != null ? fmt(pct) + '%' : finite(w.remaining) ? amount(w.remaining, w.unit) : '已用 ' + amount(w.used, w.unit);
+      return `<span class="pq-mini-window ${pct != null && pct <= 20 ? 'is-low' : ''}"><span><small>${esc(w.label || '用量窗口')}</small><b>${esc(value)}</b></span>${pct == null ? '' : `<span class="pq-mini-track" role="meter" aria-label="${esc(w.label || '用量窗口')}剩余" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${pct}"><i style="width:${pct}%"></i></span>`}</span>`;
+    }).join('')}</span>` : '';
+    const remaining = windows.length && windows.every(w => finite(w.remainingPercent) || finite(w.remaining));
+    return `<span class="pq-card-caption"><span>账户额度${remaining ? '<small>剩余</small>' : ''}</span><span>详情 ${icon('chevronRight')}</span></span>${periods}${balances}`;
+  }
   function pump() {
     while (working < 3 && queue.length) {
       const job = queue.shift(); working++;
@@ -97,18 +109,21 @@
   function mount(el, provider, mode = 'card') {
     if (!el || !provider) return;
     const revision = provider.id + ':' + stamp(provider); el.dataset.quotaProvider = revision;
-    el.classList.add('pq-glance'); el.style.display = '';
+    el.classList.add('pq-glance'); el.classList.toggle('pq-card', mode === 'card'); el.style.display = '';
     el.innerHTML = `<button type="button" class="pq-glance-button" aria-label="查看 ${esc(provider.name)} 额度">${icon('chart')}<span>额度</span><small>读取中</small></button>`;
     el.querySelector('button').onclick = () => open(provider);
     const update = q => {
       if (!el.isConnected || el.dataset.quotaProvider !== revision) return;
       const parts = summary(q);
+      el.classList.toggle('pq-has-values', parts.length > 0);
       if (mode === 'chip' && !parts?.length) { el.style.display = 'none'; return; }
       const button = el.querySelector('button');
       button.classList.toggle('pq-unavailable', !parts?.length);
       button.title = parts?.length ? parts.map(p => p.label + ' ' + p.text).join(' · ') + ' · 点击查看详情'
         : q?.reason || '供应商未提供额度接口';
-      button.innerHTML = icon('chart') + (parts?.length ? parts.slice(0, 2).map(p => `<span><small>${esc(p.label)}</small><b>${esc(p.text)}</b></span>`).join('') : '<span>额度未提供</span>');
+      button.setAttribute('aria-label', '查看 ' + provider.name + ' 额度' + (parts.length ? '：' + parts.map(p => p.label + ' ' + p.text).join('，') : ''));
+      if (mode === 'card') button.innerHTML = parts.length ? glance(q) : '<span class="pq-card-unavailable">' + icon('chart') + '<span>额度未提供</span>' + icon('chevronRight') + '</span>';
+      else button.innerHTML = icon('chart') + (parts.length ? parts.map(p => `<span><small>${esc(p.label)}</small><b>${esc(p.text)}</b></span>`).join('') : '<span>额度未提供</span>');
     };
     read(provider).then(update);
   }

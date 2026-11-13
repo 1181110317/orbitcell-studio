@@ -1,7 +1,7 @@
 'use strict';
 const fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),assert=require('node:assert/strict');
 const text=fs.readFileSync(path.resolve(__dirname,'../../public/app.js'),'utf8');
-const source=(start,end)=>text.slice(text.indexOf(start),text.indexOf(end,text.indexOf(start)));
+const source=(start,end)=>text.slice(text.indexOf(start),text.indexOf(end,text.indexOf(start)))+'\n';
 let session={cwd:''};const S={defaultWorkspace:'C:\\User Workspace\\OrbitCell'};
 const ui=vm.runInNewContext(source('function previewWorkingDirectory(', '\nfunction officeMediaUrlFor(')+source('function officeMediaUrlFor(', '\nfunction previewTargetFor(')+source('function previewDisplayPath(', '\nfunction showFilePreview(')+';({previewWorkingDirectory,previewDisplayPath,rawFileUrl,officeMediaUrlFor})',{curSession:()=>session,S,storageGet:()=>''});
 const query=()=>new URL(ui.rawFileUrl('pelican-bike.html'),'http://fixture.invalid').searchParams;

@@ -1,5 +1,7 @@
 <div align="center">
 
+[English](README.md) · [简体中文](README.zh-CN.md)
+
 <img src="public/brand.svg" alt="OrbitCell" width="64">
 
 <h1>OrbitCell Studio</h1>
@@ -32,8 +34,9 @@ OrbitCell Studio is an AI Agent management, model management and development col
 ## What's new
 
 - **Compact Agent workspace** — aligned settings, real brand icons, detected versions, native permission modes, per-Agent page preferences and selective conversation import. Catalog placeholders are clearly marked as not connected.
+- **Arrange your workspace** — drag the handle to reorder Agent choices, provider cards, projects and tool cards. Agent order is shared across entry points; keyboard users can use Alt + arrow keys on the handle.
 - **Provider-first model management** — configure a provider once, then choose its models in bulk. Compatible Agents share connections; exceptions stay with the Agent.
-- **Balances and allowances** — provider cards, account details and the conversation header share one quota view. Supported APIs report balances, credits and timed allowances with resets; custom JSON mappings support other read-only quota APIs. Missing readings stay unknown.
+- **Balances and allowances** — provider cards, account details and the conversation header share one quota view. Five-hour, weekly and monthly allowances appear together with separate progress bars; balances and credits keep their own units. Custom JSON mappings support other read-only quota APIs. Missing readings stay unknown.
 - **Reasoning slider** — choose only the effort levels declared by the current model or Agent, with keyboard and touch support.
 - **OrbitCell branding** — product name, repository, documentation and launcher are aligned. Existing installations keep their stored data and integrations.
 

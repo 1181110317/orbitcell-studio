@@ -62,11 +62,12 @@
 .pq-glance-button b{font-weight:500;font-size:11px}
 .pq-glance-button:hover b{color:var(--accent)}
 .pq-glance-button.pq-unavailable{color:var(--muted);font-size:10px}
-.provider-card .pq-glance{padding:0 13px 9px;min-height:30px}
-#quotaChip.pq-glance{padding:1px 6px;border:1px solid var(--border);background:transparent;border-radius:7px;max-width:310px}
-#quotaChip .pq-glance-button{font-size:10px;line-height:16px;padding:0;gap:7px;max-width:100%;overflow:hidden}
+.provider-card .pq-glance{padding:12px 14px;min-height:54px;border-top:1px solid var(--border)}
+#quotaChip.pq-glance{padding:3px 7px;border:1px solid var(--border);background:transparent;border-radius:7px;max-width:100%}
+#quotaChip .pq-glance-button{font-size:10px;line-height:16px;padding:0;gap:4px 9px;max-width:100%;flex-wrap:wrap;overflow:hidden}
 #quotaChip .pq-glance-button b{font-size:10px}
 #quotaChip .pq-glance-button small{font-size:9px}
+#mainHeader .hdr-badges>#quotaChip.pq-glance{max-width:min(100%,500px);height:auto;min-height:23px;white-space:normal;overflow:visible}
 .provider-quota-dialog{width:min(100%,600px);margin:auto}
 .provider-quota-dialog.provider-quota-panel{margin-block:0;padding:4px 0;border:0}
 .pq-settings{width:min(100%,640px);margin:auto}
@@ -81,6 +82,60 @@
 .pq-metric-title button{width:24px;height:24px;min-height:24px;padding:3px}
 .pq-metric-title svg{width:13px;height:13px}
 .pq-settings>.dialog-actions{position:sticky;bottom:0;z-index:2;background:var(--bg);border-top:1px solid var(--border);padding:14px 0;margin-top:18px}
-.brand-logo>img{display:block;width:28px;height:28px;border-radius:8px}
+/* The asset is the complete mark; no second tile or dark outline around it. */
+:is(#sidebar .brand-logo,.empty-state .es-logo,#authBox .auth-logo,.te-pv-logo){background:transparent;border:0;box-shadow:none;padding:0}
+#sidebar .brand-logo{width:32px;height:32px;flex-basis:32px;border-radius:9px}
+:is(.brand-logo,.es-logo,.auth-logo,.te-pv-logo)>img{display:block;width:100%;height:100%;object-fit:contain;border:0;border-radius:inherit}
+#modelCenter .provider-card{display:grid;grid-template-rows:auto minmax(54px,1fr) auto;align-content:start}
+.provider-card-main{padding:13px 40px 13px 14px;min-height:72px}
+.provider-card-footer{padding:8px 14px;margin:0;min-height:36px;box-sizing:border-box}
+.pq-card .pq-glance-button{display:block;width:100%;padding:0;line-height:18px}
+.pq-card .pq-card-caption{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--muted);font-size:10px;margin-bottom:8px;white-space:normal}
+.pq-card-caption>span{display:inline-flex;align-items:center;gap:5px}
+.pq-card-caption small{font-size:9px;color:var(--dim)}
+.pq-card-caption svg,.pq-card-unavailable svg{width:12px;height:12px}
+.pq-card .pq-card-amounts{display:flex;align-items:baseline;flex-wrap:wrap;gap:7px 18px;white-space:normal}
+.pq-card-amounts>span{display:flex;align-items:baseline;gap:8px;min-width:0}
+.pq-card .pq-card-amounts small{font-size:10px}
+.pq-card .pq-card-amounts b{font-size:17px;line-height:24px;font-weight:600;color:var(--title);font-variant-numeric:tabular-nums}
+.pq-card .pq-card-amounts .pq-negative{color:var(--orange,#c28120)}
+.pq-card .pq-card-periods{display:grid;grid-template-columns:repeat(var(--pq-columns),minmax(0,1fr));gap:12px;white-space:normal}
+.pq-card-periods+.pq-card-amounts{margin-top:12px}
+.pq-card .pq-mini-window{display:block;min-width:0;white-space:normal}
+.pq-mini-window>span:first-child{display:flex;align-items:baseline;justify-content:space-between;gap:4px;min-width:0}
+.pq-card .pq-mini-window small{font-size:10px;white-space:nowrap}
+.pq-card .pq-mini-window b{font-size:11px;font-weight:600;white-space:nowrap;font-variant-numeric:tabular-nums;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.pq-card .pq-mini-track{display:block;height:4px;background:var(--panel-2);border-radius:4px;overflow:hidden;margin-top:6px}
+.pq-mini-track>i{display:block;height:100%;border-radius:inherit;background:var(--accent)}
+.pq-mini-window.is-low .pq-mini-track>i{background:var(--orange,#c28120)}
+.pq-card .pq-card-unavailable{display:flex;align-items:center;gap:7px;color:var(--muted);min-height:29px;font-size:10px}
+.pq-card-unavailable>svg:last-child{margin-left:auto}
+.pq-glance-button:focus-visible{outline:2px solid var(--accent);outline-offset:5px;border-radius:4px}
+/* Shared sorting affordance; labels and business actions remain separate. */
+.layout-sort-item{position:relative;min-width:0}
+.layout-sort-wrap{display:flex;min-width:0;align-self:stretch}
+.layout-sort-wrap>button:not(.layout-drag-handle){width:100%;flex:1;min-width:0}
+.layout-drag-handle{position:absolute;right:5px;top:50%;transform:translateY(-50%);display:grid;place-items:center;width:22px;height:26px;padding:3px;border:0;border-radius:5px;background:var(--bg);color:var(--muted);opacity:.38;cursor:grab;touch-action:none;z-index:2;box-sizing:border-box;transition:opacity .12s}
+.layout-sort-item:hover>.layout-drag-handle,.layout-drag-handle:focus-visible{opacity:1}
+.layout-drag-handle:hover{color:var(--accent);background:var(--accent-soft)}
+.layout-drag-handle:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.new-task-agents .layout-sort-wrap:has(>.layout-drag-handle)>.new-task-agent>svg{opacity:0}
+.new-task-agents .layout-drag-handle{right:8px}
+#agentCenterPage .ac-agent-card.layout-sort-item{padding-left:22px}
+#agentCenterPage .ac-agent-card>.layout-drag-handle{top:16px;left:3px;right:auto;width:16px;transform:none}
+#agentCenterPage .ac-planned-card>.layout-drag-handle{top:auto;bottom:8px;right:58px;transform:none}
+.layout-sort-wrap>:is(.agent-choice,.ac-catalog-item,.manage-source-button){padding-right:30px}
+#modelCenter .managed-model-row.layout-sort-item,#modelCenter #mcContent:has(.managed-model-row.layout-sort-item) .manage-list-header,.model-usage-agent.layout-sort-item{padding-left:24px}
+.managed-model-row>.layout-drag-handle,.model-usage-agent>.layout-drag-handle{left:2px;right:auto;width:16px}
+.provider-card>.layout-drag-handle{top:22px;right:10px;transform:none}
+.layout-sort-item.is-layout-dragging{opacity:.25;pointer-events:none}
+.layout-drag-preview{position:fixed!important;z-index:100000;pointer-events:none!important;margin:0!important;opacity:.95;border:1px solid var(--accent)!important;background:var(--bg);box-shadow:0 12px 32px #0002;border-radius:10px;box-sizing:border-box}
+.layout-is-dragging,.layout-is-dragging *{cursor:grabbing!important;user-select:none!important}
+.layout-drag-preview>.layout-drag-handle{display:none}
+.layout-order-announcement{position:fixed;width:1px;height:1px;padding:0;overflow:hidden;clip-path:inset(50%);white-space:nowrap}
+.layout-order-hint{display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:10px;line-height:18px}
+.new-task-footer .layout-order-hint{margin-left:auto;margin-right:10px}
+@media(hover:none){.layout-drag-handle{opacity:.65}}
+@media(max-width:600px){#mainHeader .hdr-badges:has(>#quotaChip.pq-has-values){display:flex;min-width:0}#mainHeader .hdr-badges:has(>#quotaChip.pq-glance)>:not(#quotaChip){display:none}#mainHeader .hdr-badges>#quotaChip.pq-glance{padding:3px 6px}#quotaChip .pq-glance-button{gap:2px 7px}}
 @media(max-width:600px){#dlgBody .stats-overview-cards{grid-template-columns:repeat(2,minmax(0,1fr))}#dlgBody .stats-overview-cards .sc-value{min-width:0;max-width:100%;white-space:normal;overflow-wrap:anywhere}}
-@media(max-width:600px){.pq-fields{grid-template-columns:minmax(0,1fr)}.pq-balances{gap:18px}.provider-quota-panel{padding:12px}.provider-quota-panel [data-pq-time]{display:none}#quotaChip .pq-glance-button>span:nth-of-type(2){display:none}}
+@media(max-width:600px){.pq-fields{grid-template-columns:minmax(0,1fr)}.pq-balances{gap:18px}.provider-quota-panel{padding:12px}.provider-quota-panel [data-pq-time]{display:none}}

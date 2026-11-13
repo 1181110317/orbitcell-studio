@@ -21,7 +21,7 @@ async function waitFor(fn,label){const until=Date.now()+60000;let error;while(Da
 const ready=()=>waitFor(()=>ev('typeof S!=="undefined"&&S.wsReady&&S.agents.length>0&&!!window.AgentHubAgentCatalog'),'page startup');
 (async()=>{
   try{
-    quotaFixture=http.createServer((req,res)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify({data:{balance:38.5,credits:1500,five:38,week:65,month:{used:250,limit:1000},reset:'2030-01-01T00:00:00Z'}}));});
+    quotaFixture=http.createServer((req,res)=>{res.setHeader('Content-Type','application/json');res.end(JSON.stringify({data:{balance:38.5,credits:1500,five:38,week:65,month:{used:250,limit:1000},reset:new Date(Date.now()+7200000).toISOString(),weekReset:new Date(Date.now()+518400000).toISOString(),monthReset:new Date(Date.now()+1728000000).toISOString()}}));});
     await new Promise(resolve=>quotaFixture.listen(0,'127.0.0.1',resolve));
     const quotaUrl='http://127.0.0.1:'+quotaFixture.address().port+'/usage';
     server=spawn(process.execPath,['server.js'],{cwd:ROOT,windowsHide:true,stdio:'ignore',env:{...process.env,AGENTHUB_HOST:'127.0.0.1',AGENTHUB_PORT:'18957',AGENTHUB_DATA_DIR:DATA,AGENTHUB_TOKEN:'',AGENTHUB_RO_TOKEN:''}});
@@ -105,6 +105,7 @@ const ready=()=>waitFor(()=>ev('typeof S!=="undefined"&&S.wsReady&&S.agents.leng
     console.log('  PASS 4 viewport sizes: equal fields, centered dropdown arrow and reachable save/diagnostic controls');
     await ev(`document.getElementById('appearanceFrame').remove();true`);
     await require('./helpers/provider-quota-ui.cjs')({api,ev,waitFor,browser,provider,quotaUrl});
+    await require('./helpers/layout-order-ui.cjs')({api,ev,waitFor,browser,provider,other,quotaUrl,workspaceDir:DATA});
     console.log('[provider-appearance-ui] passed');
   }catch(error){console.error(error);process.exitCode=1;}
   finally{

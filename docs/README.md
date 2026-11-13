@@ -1,6 +1,6 @@
 # OrbitCell documentation
 
-[← Back to the project README](../README.md)
+[← Back to the project README](../README.md) · [中文介绍](../README.zh-CN.md)
 
 Start with the page that matches what you want to do.
 

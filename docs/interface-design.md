@@ -183,3 +183,17 @@ Tool group headings, counts, running-state labels and concrete invocation headin
 Session statistics use four compact primary cards, inline cache/cost details and a separate row of timing metrics. Request updates refresh the open session and global distributions in place; closing statistics must keep it closed when a turn finishes. Date details outside the selected overview range load the same Agent/source scope rather than treating a heatmap summary as full distribution data. Queue rows expose Send now directly.
 
 For multi-operation file history, default to the operation sequence with concise write headers and actual edit fragments. Keep a separate Net changes option. The file card and diff header share the final net counts; operation totals are labelled separately and never substituted for net changes. Missing baselines stay unknown.
+## Card order
+
+Agent choices, Agent overview cards, environment lists, provider cards, model
+rows, project cards and toolbox cards expose a subtle drag handle that becomes
+clearer on hover or keyboard focus. Touch devices keep the handle visible. Focus the handle and use
+**Alt + arrow keys** to reorder without dragging; **Escape** cancels an active
+drag.
+
+Agent order is saved through the Agent preferences API and reused by the new
+task chooser, Agent management, environment views and sidebar. Other card order
+is a browser preference. Filtering preserves the positions of hidden entries.
+Reordering never enables an unavailable Agent, selects a model, sends a message,
+changes a permission or starts a task. A failed save restores the displayed
+order.

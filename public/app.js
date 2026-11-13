@@ -1797,7 +1797,7 @@ function readAgentSelection(){try{const raw=storageGet('ah.agentSelection');if(r
 function renderAgents(){
   window.AgentHubIdentity?.setAgents(S.agents);S.agentSelection=normalizeAgentSelection(S.agentSelection,S.agents);
   const grid=$('#agentGrid'),scrollTop=grid.scrollTop,selected=S.agentSelection,multiple=S.agentSelectMode==='multiple',icon=name=>window.AgentHubIcons.svg(name);
-  const listed=S.agents.filter(a=>!a.unavailable&&S.settings.agentPreferences?.[a.id]?.enabled!==false&&!S.settings.agentPreferences?.[a.id]?.hidden);
+  const listed=window.OrbitCellLayout.agents(S.agents.filter(a=>!a.unavailable&&S.settings.agentPreferences?.[a.id]?.enabled!==false&&!S.settings.agentPreferences?.[a.id]?.hidden));
   const checked=id=>multiple?(selected===null||selected.includes(id)):S.curAgent===id;
   grid.innerHTML='<div class="agent-filter-toolbar"><span>'+ (multiple?'筛选会话中的 Agent':'选择 Agent 开始对话')+'</span><button type="button" data-agent-mode="'+(multiple?'single':'multiple')+'">'+(multiple?'返回选择':'多选筛选')+'</button></div>'+listed.map(a=>'<button type="button" class="agent-card agent-choice '+(checked(a.id)?'active':'')+'" data-agent-choice="'+esc(a.id)+'" aria-pressed="'+checked(a.id)+'"><span class="ag-glyph">'+agentGlyph(a.id)+'</span><span class="ag-name">'+esc(a.name)+'</span><span class="ag-selection" aria-hidden="true">'+icon('check')+'</span><span class="ag-dot '+(agentIsReady(a)?'on':a.pathFound?'warn':'off')+'" title="'+esc(agentStatusText(a))+'"></span></button>').join('')+'<div class="agent-picker-footer"><button type="button" class="btn-mini" data-agent-all>'+icon('list')+'查看全部会话</button><button type="button" class="btn-mini" data-agent-manage>'+icon('gear')+'管理 Agent</button></div>';
   const label=document.getElementById('agentFilterLabel');
@@ -1813,9 +1813,11 @@ function renderAgents(){
   grid.querySelector('[data-agent-all]').onclick=()=>save(null);
   grid.querySelector('[data-agent-manage]').onclick=()=>window.AgentHubAgentCenter.open();
   grid.querySelector('[data-agent-mode]').onclick=event=>{S.agentSelectMode=event.currentTarget.dataset.agentMode;storageSet('ah.agentSelectMode',S.agentSelectMode);if(S.agentSelectMode==='single')save([S.curAgent]);else renderAgents();};
+  window.OrbitCellLayout.bind(grid,{key:"agents",selector:"[data-agent-choice]",id:el=>el.dataset.agentChoice,disabled:S.readOnly,onChange:window.OrbitCellLayout.saveAgents});
   grid.scrollTop=scrollTop;
 }
 
+document.addEventListener('orbitcell:order-changed',event=>{if(event.detail.key==='agents')renderAgents();});
 document.addEventListener('click',event=>{const picker=document.getElementById('agentFilterDetails');if(picker?.open&&!event.composedPath().includes(picker))picker.open=false;});
 document.addEventListener('keydown',event=>{const picker=document.getElementById('agentFilterDetails');if(event.key==='Escape'&&picker?.open){picker.open=false;picker.querySelector('summary')?.focus();}});
 
@@ -14740,14 +14742,14 @@ function openNewTaskAgentChooser(context) {
       <label class="new-task-search">${window.AgentHubUI.icon('search')}<input type="search" data-task-agent-search placeholder="搜索 Agent…" aria-label="搜索 Agent"></label>
       <div class="new-task-agents" role="group" aria-label="可用 Agent"></div>
       <div class="new-task-footer">
-        <small>发送消息后开始任务</small>
+        <small>发送消息后开始任务</small><span class="layout-order-hint">拖动右侧把手排序</span>
         <button type="button" class="btn-mini" data-task-manage>${window.AgentHubUI.icon('gear')}管理 Agent</button>
       </div>
     </div>`);
   const root=document.querySelector('.new-task-chooser'),guard=dialogGuard();
   const draw=()=>{
     const query=root.querySelector('[data-task-agent-search]').value.trim().toLowerCase();
-    root.querySelector('.new-task-agents').innerHTML=agents.filter(a=>(a.name+' '+a.id).toLowerCase().includes(query)).map(a=>'<button type="button" class="new-task-agent" data-task-agent="'+esc(a.id)+'" '+(agentSupportsEnvironment(a,context.hostId)?'':'disabled')+'><i>'+agentGlyph(a.id)+'</i><span><strong>'+esc(a.name)+'</strong><small>'+esc(!agentSupportsEnvironment(a,context.hostId)?'仅支持本机':context.hostId?'按此环境的配置运行':agentStatusText(a))+'</small></span>'+window.AgentHubUI.icon('arrowRight')+'</button>').join('')||'<p class="new-task-empty">没有匹配的 Agent</p>';
+    root.querySelector('.new-task-agents').innerHTML=window.OrbitCellLayout.agents(agents).filter(a=>(a.name+' '+a.id).toLowerCase().includes(query)).map(a=>'<button type="button" class="new-task-agent" data-task-agent="'+esc(a.id)+'" '+(agentSupportsEnvironment(a,context.hostId)?'':'disabled')+'><i>'+agentGlyph(a.id)+'</i><span><strong>'+esc(a.name)+'</strong><small>'+esc(!agentSupportsEnvironment(a,context.hostId)?'仅支持本机':context.hostId?'按此环境的配置运行':agentStatusText(a))+'</small></span>'+window.AgentHubUI.icon('arrowRight')+'</button>').join('')||'<p class="new-task-empty">没有匹配的 Agent</p>';
     root.querySelectorAll('[data-task-agent]').forEach(button=>button.onclick=async()=>{
       if(!guard()||button.disabled)return;
       const id=button.dataset.taskAgent;closeDlg();
@@ -14758,6 +14760,7 @@ function openNewTaskAgentChooser(context) {
       $('#inpCwd').value=context.cwd;updateCwdBtn();applyAgentDefaultsToComposer(context.hostId);restoreComposerDraft();
       renderAgents();renderSessions();$('#inpText').focus();
     });
+    window.OrbitCellLayout.bind(root.querySelector(".new-task-agents"),{key:"agents",selector:"[data-task-agent]",id:el=>el.dataset.taskAgent,disabled:S.readOnly,onChange:window.OrbitCellLayout.saveAgents});
   };
   root.querySelector('[data-task-agent-search]').oninput=draw;
   root.querySelector('#taskEnvironment').onchange=event=>{
