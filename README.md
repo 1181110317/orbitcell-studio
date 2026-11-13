@@ -138,25 +138,6 @@ The preview uses demo providers. Cards keep their original layout without drag h
 - **Remote and WSL first-class** — manage SSH hosts, stream remote sessions, preview images over SSH, run target-side file operations and share the same workflow across local, WSL and remote projects.
 - **Local-first and inspectable** — JSON is authoritative, SQLite is a rebuildable index, dedicated secret stores are encrypted at rest, and optional WebUI accounts add CSRF protection and login rate limits.
 
-## Supported agents
-
-| Agent | Runtime | Requires |
-| --- | --- | --- |
-| **Claude Code** | Native `claude` stream-json bridge | `claude` CLI on the local machine, WSL or SSH target |
-| **Codex** | Native `codex app-server --stdio` | `codex` CLI on the target |
-| **ZCode** | Official `app-server` protocol | ZCode with `app-server` support |
-| **DeepSeek Harness** | `dsh headless --json -` | `dsh` CLI; keeps its own profile |
-| **Gemini CLI** | Raw CLI stream adapter | `gemini` CLI |
-| **OpenCode** | Raw CLI stream adapter | `opencode` CLI |
-| **Built-in Agent / Plain chat** | Local engine, no CLI | An Anthropic/OpenAI-compatible provider |
-| **WorkBuddy** | ACP integration | Local WorkBuddy installation and its authentication |
-| **Cursor Agent (ACP)** | ACP adapter | Configured local adapter and its authentication |
-| **Custom / ACP** | Command template or ACP discovery | Any CLI that speaks the selected protocol |
-
-CodeBuddy, Antigravity, Qoder, Kimi Code, OpenClaw, MiniMax Code, Hermes, Pi, Grok Build, Qwen Code and Kiro also appear in the discovery catalog. Entries marked **Pending integration** are informational and cannot start a task until an executable integration is configured. Appearing in the catalog does not mean that the Agent is installed or authenticated.
-
-Details for each adapter, including WSL/SSH notes and capability limits, are in the [feature reference](docs/features.md#agents--sessions).
-
 ## Project status
 
 OrbitCell is actively developed and Windows-first. The registered test suite contains 99 scripts covering syntax, logic, isolated API, protocols, durability and browser regressions. External provider accounts, real SSH hosts and every third-party CLI are not exercised by the default suite; use the [testing guide](docs/testing.md) for the exact scope. The application stores runtime data locally; there is no built-in cloud sync or multi-user cloud service.

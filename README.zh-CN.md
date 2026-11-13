@@ -110,25 +110,6 @@ Windows 可双击 **`start-server.cmd`**，启动器会检查运行环境、等�
 - **技能与工具**：集中管理技能、MCP 服务器与助手，按项目和 Agent 选择需要的能力。
 - **本地数据**：JSON 为主要存储，SQLite 是可重建的索引；专用凭据存储加密保存。可选 WebUI 账户提供 CSRF 防护和登录频率限制。
 
-## 支持的 Agent
-
-| Agent | 适配方式 | 要求 |
-| --- | --- | --- |
-| **Claude Code** | 原生 `claude` stream-json | 目标环境安装 `claude` CLI |
-| **Codex** | 原生 `codex app-server --stdio` | 目标环境安装 `codex` CLI |
-| **ZCode** | 官方 app-server 协议 | 支持 app-server 的 ZCode |
-| **DeepSeek Harness** | `dsh headless --json -` | 安装 `dsh`，保留其自身配置 |
-| **Gemini CLI** | CLI 流式适配 | 安装 `gemini` CLI |
-| **OpenCode** | CLI 流式适配 | 安装 `opencode` CLI |
-| **内置 Agent / 普通聊天** | 本地引擎 | 配置受支持的供应商 API |
-| **WorkBuddy** | ACP 接入 | 本机安装 WorkBuddy 并使用其自身认证 |
-| **Cursor Agent（ACP）** | ACP 适配器 | 配置本机适配器并完成相应认证 |
-| **自定义 / ACP** | 命令模板或 ACP 发现 | 能使用所选协议的执行器 |
-
-CodeBuddy、Antigravity、Qoder、Kimi Code、OpenClaw、MiniMax Code、Hermes、Pi、Grok Build、Qwen Code、Kiro 等也包含在发现目录中。标注“待接入”的条目用于展示和了解产品，配置可执行的接入后才能启动任务；出现在目录中不代表已经安装或认证。
-
-各适配器的环境支持与能力边界见[功能参考](docs/features.md#agents--sessions)。
-
 ## 文档
 
 | 文档 | 内容 |
