@@ -12,6 +12,9 @@ Start with the page that matches what you want to do.
 | Know every feature in detail | [Feature reference](features.md) |
 | Manage Agents, models, environments and diagnostics | [Agent management](agent-management.md) |
 | Browse models, connections, skills, MCP servers and presets | [Management centers](management-centers.md) |
+| Arrange Agents, providers, models, projects or tools without dragging | [Display order](../README.md#arrange-your-workspace) · [中文说明](../README.zh-CN.md#调整工作空间的显示顺序) |
+| Read balances, credits and timed allowances | [Provider quotas](provider-quotas.md) |
+| Find OrbitCell's product name and compatibility notes | [Product identity](branding.md) |
 | Reuse the shared interface system | [Interface design](interface-design.md) |
 | Set environment variables or configure an agent CLI | [Configuration](configuration.md) |
 | Understand how the server and agents fit together | [Architecture](architecture.md) |
